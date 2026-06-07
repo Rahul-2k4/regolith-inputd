@@ -20,6 +20,16 @@ impl InputSourcesHandler {
     fn apply_input_sources(&mut self) -> Result<(), Box<dyn Error>> {
         let sources: Vec<(String, String)> = self.settings().get("sources");
         // Layout is of form code+variant
+        let mut sources: Vec<(String, String)> = sources
+            .into_iter()
+            .filter(|(source_type, layout)| source_type == "xkb" && !layout.trim().is_empty())
+            .collect();
+
+        if sources.is_empty() {
+            info!("No valid input sources configured; falling back to xkb layout \"us\"");
+            sources.push((String::from("xkb"), String::from("us")));
+        }
+
         let (layouts, variants) = sources
             .into_iter()
             .map(|(_, layout)| {
