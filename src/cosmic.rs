@@ -8,6 +8,8 @@ use swayipc::{Connection as SwayConnection, Input};
 
 const COSMIC_COMP_CONFIG: &str = "com.system76.CosmicComp";
 const COSMIC_COMP_CONFIG_VERSION: u64 = 1;
+const COSMIC_MOUSE_CONFIG_KEY: &str = "input_default";
+const COSMIC_TOUCHPAD_CONFIG_KEY: &str = "input_touchpad";
 
 #[derive(Debug, Default, Deserialize)]
 struct CosmicInputConfig {
@@ -47,7 +49,7 @@ impl CosmicMouseHandler {
     fn input_config_from(
         config: &cosmic_config::Config,
     ) -> Result<CosmicInputConfig, Box<dyn Error>> {
-        Ok(config.get("input_default").unwrap_or_default())
+        Ok(config.get(COSMIC_MOUSE_CONFIG_KEY).unwrap_or_default())
     }
 
     fn set_bool(
@@ -116,7 +118,7 @@ impl InputHandler for CosmicMouseHandler {
         };
 
         match config.watch(|config, keys| {
-            if !keys.iter().any(|key| key == "input_default") {
+            if !keys.iter().any(|key| key == COSMIC_MOUSE_CONFIG_KEY) {
                 return;
             }
 
@@ -139,6 +141,120 @@ impl InputHandler for CosmicMouseHandler {
 }
 
 unsafe impl Send for CosmicMouseHandler {}
+
+pub struct CosmicTouchpadHandler {
+    sway_connection: SwayConnection,
+    _watcher: Option<RecommendedWatcher>,
+}
+
+impl CosmicTouchpadHandler {
+    pub fn new() -> Self {
+        Self {
+            sway_connection: SwayConnection::new().unwrap(),
+            _watcher: None,
+        }
+    }
+
+    fn input_config() -> Result<CosmicInputConfig, Box<dyn Error>> {
+        let config = cosmic_config::Config::new(COSMIC_COMP_CONFIG, COSMIC_COMP_CONFIG_VERSION)?;
+        Self::input_config_from(&config)
+    }
+
+    fn input_config_from(
+        config: &cosmic_config::Config,
+    ) -> Result<CosmicInputConfig, Box<dyn Error>> {
+        Ok(config.get(COSMIC_TOUCHPAD_CONFIG_KEY).unwrap_or_default())
+    }
+
+    fn set_bool(
+        sway_connection: &mut SwayConnection,
+        option: &str,
+        value: Option<bool>,
+    ) -> Result<(), Box<dyn Error>> {
+        if let Some(value) = value {
+            let sway_value = if value { "enabled" } else { "disabled" };
+            sway_connection.run_command(format!("input type:touchpad {option} {sway_value}"))?;
+        }
+        Ok(())
+    }
+
+    fn apply_input_config(
+        sway_connection: &mut SwayConnection,
+        input_config: CosmicInputConfig,
+    ) -> Result<(), Box<dyn Error>> {
+        if let Some(acceleration) = input_config.acceleration {
+            sway_connection.run_command(format!(
+                "input type:touchpad pointer_accel {}",
+                acceleration.speed
+            ))?;
+        }
+
+        Self::set_bool(sway_connection, "left_handed", input_config.left_handed)?;
+
+        if let Some(scroll_config) = input_config.scroll_config {
+            Self::set_bool(
+                sway_connection,
+                "natural_scroll",
+                scroll_config.natural_scroll,
+            )?;
+        }
+
+        Ok(())
+    }
+}
+
+impl InputHandler for CosmicTouchpadHandler {
+    fn sway_connection(&mut self) -> &mut SwayConnection {
+        &mut self.sway_connection
+    }
+
+    fn apply_changes(&mut self, _: &str) -> Result<(), Box<dyn Error>> {
+        self.apply_all()
+    }
+
+    fn apply_all(&mut self) -> Result<(), Box<dyn Error>> {
+        Self::apply_input_config(&mut self.sway_connection, Self::input_config()?)
+    }
+
+    fn sync_from_sway_input(&mut self, input: &Input) -> Result<(), Box<dyn Error>> {
+        debug!(
+            "COSMIC touchpad handler does not sync sway input type '{}' back to cosmic-config yet",
+            input.input_type
+        );
+        Ok(())
+    }
+
+    fn monitor_settings_change(&mut self) {
+        let Ok(config) = cosmic_config::Config::new(COSMIC_COMP_CONFIG, COSMIC_COMP_CONFIG_VERSION)
+        else {
+            error!("Failed to create COSMIC config watcher for touchpad settings");
+            return;
+        };
+
+        match config.watch(|config, keys| {
+            if !keys.iter().any(|key| key == COSMIC_TOUCHPAD_CONFIG_KEY) {
+                return;
+            }
+
+            let result = SwayConnection::new()
+                .map_err(|err| -> Box<dyn Error> { Box::new(err) })
+                .and_then(|mut sway_connection| {
+                    Self::input_config_from(config).and_then(|input_config| {
+                        Self::apply_input_config(&mut sway_connection, input_config)
+                    })
+                });
+
+            if let Err(err) = result {
+                error!("Failed to apply COSMIC touchpad settings change: {err}");
+            }
+        }) {
+            Ok(watcher) => self._watcher = Some(watcher),
+            Err(err) => error!("Failed to watch COSMIC touchpad settings: {err}"),
+        }
+    }
+}
+
+unsafe impl Send for CosmicTouchpadHandler {}
 
 pub struct CosmicInputHandler {
     name: &'static str,
