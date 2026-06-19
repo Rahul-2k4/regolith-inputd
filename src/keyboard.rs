@@ -51,7 +51,7 @@ impl InputHandler for KeyboardHandler {
     fn apply_all(&mut self) -> Result<(), Box<dyn Error>> {
         Ok(())
     }
-    fn sync_gsettings(&mut self, _: &swayipc::Input) -> Result<(), Box<dyn Error>> {
+    fn sync_from_sway_input(&mut self, _: &swayipc::Input) -> Result<(), Box<dyn Error>> {
         Ok(())
     }
 }

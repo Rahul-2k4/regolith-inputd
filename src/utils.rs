@@ -4,7 +4,7 @@ use swayipc::{Connection as SwayConnection, EventStream, EventType, Fallible, In
 
 use crate::HandlerList;
 
-pub fn sync_input_gsettings<'a>(
+pub fn sync_input_settings<'a>(
     handlers_sref: &'a mut HandlerList,
     input: &Input,
 ) -> Result<(), Box<dyn Error + 'a>> {
@@ -17,7 +17,7 @@ pub fn sync_input_gsettings<'a>(
     };
     info!("Recieved Sway InputEvent for {}", input.input_type);
     let mut handlers_lock = handlers_sref.lock()?;
-    handlers_lock[handler_index].sync_gsettings_sync(input)?;
+    handlers_lock[handler_index].sync_from_sway_input_sync(input)?;
     Ok(())
 }
 

@@ -24,8 +24,8 @@ use swayipc::{Connection as SwayConnection, Event, TickEvent};
 use touchpad::TouchpadHandler;
 use traits::InputHandler;
 
-static mut ALLOW_SWAYINPUT_APPLY: AtomicBool = AtomicBool::new(true);
-static mut ALLOW_GSETTINGS_APPLY: AtomicBool = AtomicBool::new(true);
+static ALLOW_SWAYINPUT_APPLY: AtomicBool = AtomicBool::new(true);
+static ALLOW_SETTINGS_APPLY: AtomicBool = AtomicBool::new(true);
 
 // Type Aliases
 type SharedRef<T> = Arc<Mutex<T>>;
@@ -90,7 +90,7 @@ impl SettingsManager {
         let mut handlers_lock = self.handlers.lock()?;
         for handle in handlers_lock.iter_mut() {
             handle.apply_all_sync()?;
-            handle.monitor_gsettings_change();
+            handle.monitor_settings_change();
         }
 
         let handlers_sref = self.handlers.clone();
@@ -106,10 +106,8 @@ impl SettingsManager {
         );
         for event in event_stream {
             match event {
-                Ok(Event::Input(event))
-                    if unsafe { ALLOW_SWAYINPUT_APPLY.load(Ordering::Relaxed) } =>
-                {
-                    utils::sync_input_gsettings(&mut handlers_sref, &event.input).unwrap();
+                Ok(Event::Input(event)) if ALLOW_SWAYINPUT_APPLY.load(Ordering::Relaxed) => {
+                    utils::sync_input_settings(&mut handlers_sref, &event.input).unwrap();
                 }
                 Ok(Event::Tick(TickEvent {
                     payload,
@@ -120,23 +118,21 @@ impl SettingsManager {
                     match serde_json::from_str::<SwayReloadTick>(&payload) {
                         Ok(SwayReloadTick {
                             status: ReloadPending,
-                        }) => unsafe {
+                        }) => {
                             ALLOW_SWAYINPUT_APPLY.store(false, Ordering::Relaxed);
                             info!(
                                 "Recieved tick, allow_sync = {}",
                                 ALLOW_SWAYINPUT_APPLY.load(Ordering::Relaxed)
                             );
-                        },
+                        }
                         Ok(SwayReloadTick { status: ReloadDone }) => {
                             thread::sleep(Duration::from_millis(100));
-                            unsafe {
-                                ALLOW_SWAYINPUT_APPLY.store(true, Ordering::Relaxed);
-                                info!(
-                                    "Recieved tick, allow_sync = {}",
-                                    ALLOW_SWAYINPUT_APPLY.load(Ordering::Relaxed)
-                                );
-                            }
-                            info!("Sway reload done - Reapplying configurations from gsettings");
+                            ALLOW_SWAYINPUT_APPLY.store(true, Ordering::Relaxed);
+                            info!(
+                                "Recieved tick, allow_sync = {}",
+                                ALLOW_SWAYINPUT_APPLY.load(Ordering::Relaxed)
+                            );
+                            info!("Sway reload done - Reapplying configurations from settings");
                             let mut handlers_lock = handlers_sref
                                 .lock()
                                 .expect("Acquired lock for handers_sref");

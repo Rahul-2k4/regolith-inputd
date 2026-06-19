@@ -60,7 +60,7 @@ impl InputHandler for MouseHandler {
         self.apply_natural_scroll()?;
         Ok(())
     }
-    fn sync_gsettings(&mut self, input: &Input) -> Result<(), Box<dyn Error>> {
+    fn sync_from_sway_input(&mut self, input: &Input) -> Result<(), Box<dyn Error>> {
         info!("Syncronizing mouse input state of sway with gsettings...");
         self.sync_pointer_gsettings(input)?;
         if input.libinput.is_none() {

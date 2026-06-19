@@ -7,69 +7,57 @@ use std::thread;
 use std::time::Duration;
 use swayipc::{Connection as SwayConnection, EnabledOrDisabled, Input, SendEvents};
 
-use crate::{ALLOW_GSETTINGS_APPLY, ALLOW_SWAYINPUT_APPLY};
+use crate::{ALLOW_SETTINGS_APPLY, ALLOW_SWAYINPUT_APPLY};
 
 pub trait InputHandler {
     fn settings(&self) -> &Settings;
     fn sway_connection(&mut self) -> &mut SwayConnection;
     fn apply_changes(&mut self, _: &str) -> Result<(), Box<dyn Error>>;
     fn apply_all(&mut self) -> Result<(), Box<dyn Error>>;
-    fn sync_gsettings(&mut self, _: &Input) -> Result<(), Box<dyn Error>>;
+    fn sync_from_sway_input(&mut self, _: &Input) -> Result<(), Box<dyn Error>>;
 
     fn apply_changes_sync(&mut self, key: &str) -> Result<(), Box<dyn Error>> {
-        unsafe {
-            ALLOW_SWAYINPUT_APPLY.store(false, Ordering::Relaxed);
-        }
+        ALLOW_SWAYINPUT_APPLY.store(false, Ordering::Relaxed);
         let result = self.apply_changes(key);
 
         thread::sleep(Duration::from_millis(100));
 
-        unsafe {
-            let allow = ALLOW_SWAYINPUT_APPLY.load(Ordering::Relaxed) && true;
-            ALLOW_SWAYINPUT_APPLY.store(allow, Ordering::Relaxed);
-        }
+        let allow = ALLOW_SWAYINPUT_APPLY.load(Ordering::Relaxed) && true;
+        ALLOW_SWAYINPUT_APPLY.store(allow, Ordering::Relaxed);
         result
     }
 
     fn apply_all_sync(&mut self) -> Result<(), Box<dyn Error>> {
-        unsafe {
-            if !ALLOW_GSETTINGS_APPLY.load(Ordering::Relaxed) {
-                return Ok(());
-            }
-            ALLOW_SWAYINPUT_APPLY.store(false, Ordering::Relaxed);
+        if !ALLOW_SETTINGS_APPLY.load(Ordering::Relaxed) {
+            return Ok(());
         }
+        ALLOW_SWAYINPUT_APPLY.store(false, Ordering::Relaxed);
 
         let result = self.apply_all();
 
         thread::sleep(Duration::from_millis(100));
 
-        unsafe {
-            let allow = ALLOW_SWAYINPUT_APPLY.load(Ordering::Relaxed) && true;
-            ALLOW_SWAYINPUT_APPLY.store(allow, Ordering::Relaxed);
-        }
+        let allow = ALLOW_SWAYINPUT_APPLY.load(Ordering::Relaxed) && true;
+        ALLOW_SWAYINPUT_APPLY.store(allow, Ordering::Relaxed);
         result
     }
 
-    fn sync_gsettings_sync(&mut self, _: &Input) -> Result<(), Box<dyn Error>> {
-        unsafe {
-            if !ALLOW_SWAYINPUT_APPLY.load(Ordering::Relaxed) {
-                return Ok(());
-            }
-            ALLOW_GSETTINGS_APPLY.store(false, Ordering::Relaxed);
+    fn sync_from_sway_input_sync(&mut self, input: &Input) -> Result<(), Box<dyn Error>> {
+        if !ALLOW_SWAYINPUT_APPLY.load(Ordering::Relaxed) {
+            return Ok(());
         }
+        ALLOW_SETTINGS_APPLY.store(false, Ordering::Relaxed);
 
-        let result = self.apply_all();
+        let result = self.sync_from_sway_input(input);
 
         thread::sleep(Duration::from_millis(100));
 
-        unsafe {
-            let allow = ALLOW_GSETTINGS_APPLY.load(Ordering::Relaxed) && true;
-            ALLOW_GSETTINGS_APPLY.store(allow, Ordering::Relaxed);
-        }
+        let allow = ALLOW_SETTINGS_APPLY.load(Ordering::Relaxed) && true;
+        ALLOW_SETTINGS_APPLY.store(allow, Ordering::Relaxed);
         result
     }
 
-    fn monitor_gsettings_change(&mut self)
+    fn monitor_settings_change(&mut self)
     where
         Self: 'static,
     {
