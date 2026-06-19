@@ -5,6 +5,11 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["gnome"]
+gnome = []
+cosmic = []
+
 [dependencies]
 gio = "0.15.12"
 glib = "0.15.12"

@@ -1,3 +1,4 @@
+mod backend;
 mod input_sources;
 mod keyboard;
 mod mouse;
@@ -5,6 +6,7 @@ mod touchpad;
 mod traits;
 mod utils;
 
+use backend::BackendKind;
 use input_sources::InputSourcesHandler;
 use keyboard::KeyboardHandler;
 use log::info;
@@ -49,6 +51,17 @@ struct SwayReloadTick {
 // Method Implementations
 impl SettingsManager {
     pub fn new() -> SettingsManager {
+        Self::new_for_backend(BackendKind::from_current_desktop())
+    }
+
+    fn new_for_backend(backend: BackendKind) -> SettingsManager {
+        match backend {
+            BackendKind::Gnome => Self::new_gnome(),
+            BackendKind::Cosmic => Self::new_cosmic(),
+        }
+    }
+
+    fn new_gnome() -> SettingsManager {
         utils::retry_action(SwayConnection::new, 5, Duration::from_millis(500));
         let handlers: HandlerList = Arc::new(Mutex::new([
             Box::new(MouseHandler::new()),
@@ -57,6 +70,20 @@ impl SettingsManager {
             Box::new(InputSourcesHandler::new()),
         ]));
         SettingsManager { handlers }
+    }
+
+    fn new_cosmic() -> SettingsManager {
+        #[cfg(feature = "cosmic")]
+        {
+            warn!("COSMIC input backend selected, but COSMIC handlers are not wired yet; using GNOME handlers for this scaffold");
+            Self::new_gnome()
+        }
+
+        #[cfg(not(feature = "cosmic"))]
+        {
+            warn!("COSMIC desktop detected, but regolith-inputd was built without the cosmic feature; using GNOME handlers");
+            Self::new_gnome()
+        }
     }
 
     pub fn start_monitoring(&mut self) -> Result<(), Box<dyn Error + '_>> {
