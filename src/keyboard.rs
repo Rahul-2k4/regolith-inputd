@@ -1,3 +1,4 @@
+use crate::traits::GnomeInputHandler;
 use crate::InputHandler;
 use gio::{prelude::SettingsExtManual, Settings};
 use log::info;
@@ -42,9 +43,6 @@ impl InputHandler for KeyboardHandler {
         };
         Ok(())
     }
-    fn settings(&self) -> &Settings {
-        &self.settings
-    }
     fn sway_connection(&mut self) -> &mut swayipc::Connection {
         &mut self.sway_connection
     }
@@ -53,6 +51,15 @@ impl InputHandler for KeyboardHandler {
     }
     fn sync_from_sway_input(&mut self, _: &swayipc::Input) -> Result<(), Box<dyn Error>> {
         Ok(())
+    }
+    fn monitor_settings_change(&mut self) {
+        self.monitor_gnome_settings_change();
+    }
+}
+
+impl GnomeInputHandler for KeyboardHandler {
+    fn settings(&self) -> &Settings {
+        &self.settings
     }
 }
 unsafe impl Send for KeyboardHandler {}

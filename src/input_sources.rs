@@ -1,3 +1,4 @@
+use crate::traits::GnomeInputHandler;
 use crate::InputHandler;
 use gio::{prelude::SettingsExtManual, Settings};
 use log::info;
@@ -55,15 +56,21 @@ impl InputHandler for InputSourcesHandler {
     fn apply_all(&mut self) -> Result<(), Box<dyn Error>> {
         self.apply_input_sources()
     }
-    fn settings(&self) -> &Settings {
-        &self.settings
-    }
     fn sync_from_sway_input(&mut self, input: &swayipc::Input) -> Result<(), Box<dyn Error>> {
         info!("xkb_layout: {}", input.xkb_layout_names[0]);
         Ok(())
     }
     fn sway_connection(&mut self) -> &mut swayipc::Connection {
         &mut self.sway_connection
+    }
+    fn monitor_settings_change(&mut self) {
+        self.monitor_gnome_settings_change();
+    }
+}
+
+impl GnomeInputHandler for InputSourcesHandler {
+    fn settings(&self) -> &Settings {
+        &self.settings
     }
 }
 unsafe impl Send for InputSourcesHandler {}

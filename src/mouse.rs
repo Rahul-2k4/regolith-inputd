@@ -1,4 +1,6 @@
-use crate::traits::{InputHandler, PointerMethods, PrimitiveToSwayType, SwayTypeToPrimitive};
+use crate::traits::{
+    GnomeInputHandler, InputHandler, PointerMethods, PrimitiveToSwayType, SwayTypeToPrimitive,
+};
 use gio::{prelude::SettingsExtManual, traits::SettingsExt, Settings};
 use log::info;
 use std::error::Error;
@@ -48,9 +50,6 @@ impl InputHandler for MouseHandler {
         };
         Ok(())
     }
-    fn settings(&self) -> &Settings {
-        &self.settings
-    }
     fn sway_connection(&mut self) -> &mut swayipc::Connection {
         &mut self.sway_connection
     }
@@ -72,6 +71,15 @@ impl InputHandler for MouseHandler {
                 .set_boolean("left-handed", left_handed.to_primitive())?;
         }
         Ok(())
+    }
+    fn monitor_settings_change(&mut self) {
+        self.monitor_gnome_settings_change();
+    }
+}
+
+impl GnomeInputHandler for MouseHandler {
+    fn settings(&self) -> &Settings {
+        &self.settings
     }
 }
 

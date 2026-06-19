@@ -10,11 +10,11 @@ use swayipc::{Connection as SwayConnection, EnabledOrDisabled, Input, SendEvents
 use crate::{ALLOW_SETTINGS_APPLY, ALLOW_SWAYINPUT_APPLY};
 
 pub trait InputHandler {
-    fn settings(&self) -> &Settings;
     fn sway_connection(&mut self) -> &mut SwayConnection;
     fn apply_changes(&mut self, _: &str) -> Result<(), Box<dyn Error>>;
     fn apply_all(&mut self) -> Result<(), Box<dyn Error>>;
     fn sync_from_sway_input(&mut self, _: &Input) -> Result<(), Box<dyn Error>>;
+    fn monitor_settings_change(&mut self);
 
     fn apply_changes_sync(&mut self, key: &str) -> Result<(), Box<dyn Error>> {
         ALLOW_SWAYINPUT_APPLY.store(false, Ordering::Relaxed);
@@ -56,8 +56,12 @@ pub trait InputHandler {
         ALLOW_SETTINGS_APPLY.store(allow, Ordering::Relaxed);
         result
     }
+}
 
-    fn monitor_settings_change(&mut self)
+pub trait GnomeInputHandler: InputHandler {
+    fn settings(&self) -> &Settings;
+
+    fn monitor_gnome_settings_change(&mut self)
     where
         Self: 'static,
     {
@@ -72,7 +76,7 @@ pub trait InputHandler {
     }
 }
 
-pub trait PointerMethods: InputHandler {
+pub trait PointerMethods: GnomeInputHandler {
     fn pointer_type(&self) -> &str;
     fn apply_left_handed(&mut self) -> Result<(), Box<dyn Error>>;
     fn apply_speed(&mut self) -> Result<(), Box<dyn Error>> {

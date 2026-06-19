@@ -1,4 +1,6 @@
-use crate::traits::{InputHandler, PointerMethods, PrimitiveToSwayType, SwayTypeToPrimitive};
+use crate::traits::{
+    GnomeInputHandler, InputHandler, PointerMethods, PrimitiveToSwayType, SwayTypeToPrimitive,
+};
 use gio::{prelude::SettingsExtManual, traits::SettingsExt, Settings};
 use log::info;
 
@@ -140,9 +142,6 @@ impl InputHandler for TouchpadHandler {
         };
         Ok(())
     }
-    fn settings(&self) -> &Settings {
-        &self.settings
-    }
     fn sway_connection(&mut self) -> &mut swayipc::Connection {
         &mut self.sway_connection
     }
@@ -182,6 +181,15 @@ impl InputHandler for TouchpadHandler {
                 .set_boolean("tap-and-drag-lock", drag_lock.to_primitive())?;
         }
         Ok(())
+    }
+    fn monitor_settings_change(&mut self) {
+        self.monitor_gnome_settings_change();
+    }
+}
+
+impl GnomeInputHandler for TouchpadHandler {
+    fn settings(&self) -> &Settings {
+        &self.settings
     }
 }
 unsafe impl Send for TouchpadHandler {}
