@@ -11,14 +11,9 @@ mod traits;
 mod utils;
 
 use backend::BackendKind;
-#[cfg(feature = "gnome")]
-use input_sources::InputSourcesHandler;
-#[cfg(feature = "gnome")]
-use keyboard::KeyboardHandler;
+use backend::HandlerSet;
 use log::info;
 use log::{debug, warn};
-#[cfg(feature = "gnome")]
-use mouse::MouseHandler;
 use serde::Deserialize;
 use std::error::Error;
 use std::sync::{
@@ -28,16 +23,13 @@ use std::sync::{
 use std::thread;
 use std::time::Duration;
 use swayipc::{Event, TickEvent};
-#[cfg(feature = "gnome")]
-use touchpad::TouchpadHandler;
-use traits::InputHandler;
 
 static ALLOW_SWAYINPUT_APPLY: AtomicBool = AtomicBool::new(true);
 static ALLOW_SETTINGS_APPLY: AtomicBool = AtomicBool::new(true);
 
 // Type Aliases
 type SharedRef<T> = Arc<Mutex<T>>;
-type HandlerList = SharedRef<[Box<dyn InputHandler + Send>; 4]>;
+type HandlerList = SharedRef<HandlerSet>;
 
 // Structs
 pub struct SettingsManager {
@@ -63,43 +55,9 @@ impl SettingsManager {
     }
 
     fn new_for_backend(backend: BackendKind) -> SettingsManager {
-        match backend {
-            BackendKind::Gnome => Self::new_gnome(),
-            BackendKind::Cosmic => Self::new_cosmic(),
-        }
-    }
-
-    #[cfg(feature = "gnome")]
-    fn new_gnome() -> SettingsManager {
         utils::retry_action(swayipc::Connection::new, 5, Duration::from_millis(500));
-        let handlers: HandlerList = Arc::new(Mutex::new([
-            Box::new(MouseHandler::new()),
-            Box::new(KeyboardHandler::new()),
-            Box::new(TouchpadHandler::new()),
-            Box::new(InputSourcesHandler::new()),
-        ]));
+        let handlers = Arc::new(Mutex::new(backend.create_handlers()));
         SettingsManager { handlers }
-    }
-
-    #[cfg(not(feature = "gnome"))]
-    fn new_gnome() -> SettingsManager {
-        panic!(
-            "GNOME input backend selected, but regolith-inputd was built without the gnome feature"
-        );
-    }
-
-    fn new_cosmic() -> SettingsManager {
-        #[cfg(feature = "cosmic")]
-        {
-            panic!("COSMIC input backend selected, but COSMIC handlers are not wired yet");
-        }
-
-        #[cfg(not(feature = "cosmic"))]
-        {
-            panic!(
-                "COSMIC desktop detected, but regolith-inputd was built without the cosmic feature"
-            );
-        }
     }
 
     pub fn start_monitoring(&mut self) -> Result<(), Box<dyn Error + '_>> {

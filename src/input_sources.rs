@@ -1,5 +1,4 @@
-use crate::traits::GnomeInputHandler;
-use crate::InputHandler;
+use crate::traits::{GnomeInputHandler, InputHandler};
 use gio::{prelude::SettingsExtManual, Settings};
 use log::info;
 use std::error::Error;

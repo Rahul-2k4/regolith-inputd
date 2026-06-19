@@ -1,3 +1,13 @@
+use crate::traits::InputHandler;
+
+#[cfg(feature = "gnome")]
+use crate::{
+    input_sources::InputSourcesHandler, keyboard::KeyboardHandler, mouse::MouseHandler,
+    touchpad::TouchpadHandler,
+};
+
+pub type HandlerSet = [Box<dyn InputHandler + Send>; 4];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendKind {
     Gnome,
@@ -21,6 +31,38 @@ impl BackendKind {
             Self::Gnome
         }
     }
+
+    pub fn create_handlers(self) -> HandlerSet {
+        match self {
+            Self::Gnome => create_gnome_handlers(),
+            Self::Cosmic => create_cosmic_handlers(),
+        }
+    }
+}
+
+#[cfg(feature = "gnome")]
+fn create_gnome_handlers() -> HandlerSet {
+    [
+        Box::new(MouseHandler::new()),
+        Box::new(KeyboardHandler::new()),
+        Box::new(TouchpadHandler::new()),
+        Box::new(InputSourcesHandler::new()),
+    ]
+}
+
+#[cfg(not(feature = "gnome"))]
+fn create_gnome_handlers() -> HandlerSet {
+    panic!("GNOME input backend selected, but regolith-inputd was built without the gnome feature");
+}
+
+#[cfg(feature = "cosmic")]
+fn create_cosmic_handlers() -> HandlerSet {
+    panic!("COSMIC input backend selected, but COSMIC handlers are not wired yet");
+}
+
+#[cfg(not(feature = "cosmic"))]
+fn create_cosmic_handlers() -> HandlerSet {
+    panic!("COSMIC desktop detected, but regolith-inputd was built without the cosmic feature");
 }
 
 #[cfg(test)]
