@@ -1176,6 +1176,7 @@ dependencies = [
  "gio",
  "glib",
  "log",
+ "notify",
  "pretty_env_logger",
  "serde",
  "serde_json",

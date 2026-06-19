@@ -1,6 +1,7 @@
 use crate::traits::InputHandler;
 use cosmic_config::ConfigGet;
-use log::debug;
+use log::{debug, error};
+use notify::RecommendedWatcher;
 use serde::Deserialize;
 use std::error::Error;
 use swayipc::{Connection as SwayConnection, Input};
@@ -27,44 +28,59 @@ struct CosmicScrollConfig {
 
 pub struct CosmicMouseHandler {
     sway_connection: SwayConnection,
+    _watcher: Option<RecommendedWatcher>,
 }
 
 impl CosmicMouseHandler {
     pub fn new() -> Self {
         Self {
             sway_connection: SwayConnection::new().unwrap(),
+            _watcher: None,
         }
     }
 
     fn input_config() -> Result<CosmicInputConfig, Box<dyn Error>> {
         let config = cosmic_config::Config::new(COSMIC_COMP_CONFIG, COSMIC_COMP_CONFIG_VERSION)?;
+        Self::input_config_from(&config)
+    }
+
+    fn input_config_from(
+        config: &cosmic_config::Config,
+    ) -> Result<CosmicInputConfig, Box<dyn Error>> {
         Ok(config.get("input_default").unwrap_or_default())
     }
 
-    fn set_bool(&mut self, option: &str, value: Option<bool>) -> Result<(), Box<dyn Error>> {
+    fn set_bool(
+        sway_connection: &mut SwayConnection,
+        option: &str,
+        value: Option<bool>,
+    ) -> Result<(), Box<dyn Error>> {
         if let Some(value) = value {
             let sway_value = if value { "enabled" } else { "disabled" };
-            self.sway_connection
-                .run_command(format!("input type:pointer {option} {sway_value}"))?;
+            sway_connection.run_command(format!("input type:pointer {option} {sway_value}"))?;
         }
         Ok(())
     }
 
     fn apply_input_config(
-        &mut self,
+        sway_connection: &mut SwayConnection,
         input_config: CosmicInputConfig,
     ) -> Result<(), Box<dyn Error>> {
         if let Some(acceleration) = input_config.acceleration {
-            self.sway_connection.run_command(format!(
+            sway_connection.run_command(format!(
                 "input type:pointer pointer_accel {}",
                 acceleration.speed
             ))?;
         }
 
-        self.set_bool("left_handed", input_config.left_handed)?;
+        Self::set_bool(sway_connection, "left_handed", input_config.left_handed)?;
 
         if let Some(scroll_config) = input_config.scroll_config {
-            self.set_bool("natural_scroll", scroll_config.natural_scroll)?;
+            Self::set_bool(
+                sway_connection,
+                "natural_scroll",
+                scroll_config.natural_scroll,
+            )?;
         }
 
         Ok(())
@@ -81,7 +97,7 @@ impl InputHandler for CosmicMouseHandler {
     }
 
     fn apply_all(&mut self) -> Result<(), Box<dyn Error>> {
-        self.apply_input_config(Self::input_config()?)
+        Self::apply_input_config(&mut self.sway_connection, Self::input_config()?)
     }
 
     fn sync_from_sway_input(&mut self, input: &Input) -> Result<(), Box<dyn Error>> {
@@ -92,7 +108,34 @@ impl InputHandler for CosmicMouseHandler {
         Ok(())
     }
 
-    fn monitor_settings_change(&mut self) {}
+    fn monitor_settings_change(&mut self) {
+        let Ok(config) = cosmic_config::Config::new(COSMIC_COMP_CONFIG, COSMIC_COMP_CONFIG_VERSION)
+        else {
+            error!("Failed to create COSMIC config watcher for mouse settings");
+            return;
+        };
+
+        match config.watch(|config, keys| {
+            if !keys.iter().any(|key| key == "input_default") {
+                return;
+            }
+
+            let result = SwayConnection::new()
+                .map_err(|err| -> Box<dyn Error> { Box::new(err) })
+                .and_then(|mut sway_connection| {
+                    Self::input_config_from(config).and_then(|input_config| {
+                        Self::apply_input_config(&mut sway_connection, input_config)
+                    })
+                });
+
+            if let Err(err) = result {
+                error!("Failed to apply COSMIC mouse settings change: {err}");
+            }
+        }) {
+            Ok(watcher) => self._watcher = Some(watcher),
+            Err(err) => error!("Failed to watch COSMIC mouse settings: {err}"),
+        }
+    }
 }
 
 unsafe impl Send for CosmicMouseHandler {}
