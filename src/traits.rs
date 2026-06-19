@@ -1,5 +1,8 @@
+#[cfg(feature = "gnome")]
 use gio::prelude::SettingsExtManual;
+#[cfg(feature = "gnome")]
 use gio::{traits::SettingsExt, Settings};
+#[cfg(feature = "gnome")]
 use log::error;
 use std::error::Error;
 use std::sync::atomic::Ordering;
@@ -58,6 +61,7 @@ pub trait InputHandler {
     }
 }
 
+#[cfg(feature = "gnome")]
 pub trait GnomeInputHandler: InputHandler {
     fn settings(&self) -> &Settings;
 
@@ -76,6 +80,7 @@ pub trait GnomeInputHandler: InputHandler {
     }
 }
 
+#[cfg(feature = "gnome")]
 pub trait PointerMethods: GnomeInputHandler {
     fn pointer_type(&self) -> &str;
     fn apply_left_handed(&mut self) -> Result<(), Box<dyn Error>>;

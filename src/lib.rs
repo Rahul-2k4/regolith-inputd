@@ -1,16 +1,23 @@
 mod backend;
+#[cfg(feature = "gnome")]
 mod input_sources;
+#[cfg(feature = "gnome")]
 mod keyboard;
+#[cfg(feature = "gnome")]
 mod mouse;
+#[cfg(feature = "gnome")]
 mod touchpad;
 mod traits;
 mod utils;
 
 use backend::BackendKind;
+#[cfg(feature = "gnome")]
 use input_sources::InputSourcesHandler;
+#[cfg(feature = "gnome")]
 use keyboard::KeyboardHandler;
 use log::info;
 use log::{debug, warn};
+#[cfg(feature = "gnome")]
 use mouse::MouseHandler;
 use serde::Deserialize;
 use std::error::Error;
@@ -20,7 +27,8 @@ use std::sync::{
 };
 use std::thread;
 use std::time::Duration;
-use swayipc::{Connection as SwayConnection, Event, TickEvent};
+use swayipc::{Event, TickEvent};
+#[cfg(feature = "gnome")]
 use touchpad::TouchpadHandler;
 use traits::InputHandler;
 
@@ -61,8 +69,9 @@ impl SettingsManager {
         }
     }
 
+    #[cfg(feature = "gnome")]
     fn new_gnome() -> SettingsManager {
-        utils::retry_action(SwayConnection::new, 5, Duration::from_millis(500));
+        utils::retry_action(swayipc::Connection::new, 5, Duration::from_millis(500));
         let handlers: HandlerList = Arc::new(Mutex::new([
             Box::new(MouseHandler::new()),
             Box::new(KeyboardHandler::new()),
@@ -72,17 +81,24 @@ impl SettingsManager {
         SettingsManager { handlers }
     }
 
+    #[cfg(not(feature = "gnome"))]
+    fn new_gnome() -> SettingsManager {
+        panic!(
+            "GNOME input backend selected, but regolith-inputd was built without the gnome feature"
+        );
+    }
+
     fn new_cosmic() -> SettingsManager {
         #[cfg(feature = "cosmic")]
         {
-            warn!("COSMIC input backend selected, but COSMIC handlers are not wired yet; using GNOME handlers for this scaffold");
-            Self::new_gnome()
+            panic!("COSMIC input backend selected, but COSMIC handlers are not wired yet");
         }
 
         #[cfg(not(feature = "cosmic"))]
         {
-            warn!("COSMIC desktop detected, but regolith-inputd was built without the cosmic feature; using GNOME handlers");
-            Self::new_gnome()
+            panic!(
+                "COSMIC desktop detected, but regolith-inputd was built without the cosmic feature"
+            );
         }
     }
 
