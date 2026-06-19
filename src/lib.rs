@@ -1,4 +1,6 @@
 mod backend;
+#[cfg(feature = "cosmic")]
+mod cosmic;
 #[cfg(feature = "gnome")]
 mod input_sources;
 #[cfg(feature = "gnome")]
