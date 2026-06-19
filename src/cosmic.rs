@@ -10,22 +10,63 @@ const COSMIC_COMP_CONFIG: &str = "com.system76.CosmicComp";
 const COSMIC_COMP_CONFIG_VERSION: u64 = 1;
 const COSMIC_MOUSE_CONFIG_KEY: &str = "input_default";
 const COSMIC_TOUCHPAD_CONFIG_KEY: &str = "input_touchpad";
+const COSMIC_TOUCHPAD_OVERRIDE_KEY: &str = "input_touchpad_override";
 
 #[derive(Debug, Default, Deserialize)]
 struct CosmicInputConfig {
     acceleration: Option<CosmicAccelConfig>,
+    click_method: Option<CosmicClickMethod>,
+    disable_while_typing: Option<bool>,
     left_handed: Option<bool>,
+    middle_button_emulation: Option<bool>,
     scroll_config: Option<CosmicScrollConfig>,
+    tap_config: Option<CosmicTapConfig>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 struct CosmicAccelConfig {
+    profile: Option<CosmicAccelProfile>,
     speed: f64,
 }
 
 #[derive(Debug, Default, Deserialize)]
 struct CosmicScrollConfig {
+    method: Option<CosmicScrollMethod>,
     natural_scroll: Option<bool>,
+    scroll_factor: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+enum CosmicAccelProfile {
+    Flat,
+    Adaptive,
+}
+
+#[derive(Debug, Deserialize)]
+enum CosmicClickMethod {
+    ButtonAreas,
+    Clickfinger,
+}
+
+#[derive(Debug, Deserialize)]
+enum CosmicScrollMethod {
+    NoScroll,
+    TwoFinger,
+    Edge,
+    OnButtonDown,
+}
+
+#[derive(Debug, Deserialize)]
+enum CosmicTouchpadOverride {
+    None,
+    ForceDisable,
+}
+
+#[derive(Debug, Deserialize)]
+struct CosmicTapConfig {
+    enabled: bool,
+    drag: bool,
+    drag_lock: bool,
 }
 
 pub struct CosmicMouseHandler {
@@ -155,15 +196,16 @@ impl CosmicTouchpadHandler {
         }
     }
 
-    fn input_config() -> Result<CosmicInputConfig, Box<dyn Error>> {
-        let config = cosmic_config::Config::new(COSMIC_COMP_CONFIG, COSMIC_COMP_CONFIG_VERSION)?;
-        Self::input_config_from(&config)
-    }
-
     fn input_config_from(
         config: &cosmic_config::Config,
     ) -> Result<CosmicInputConfig, Box<dyn Error>> {
         Ok(config.get(COSMIC_TOUCHPAD_CONFIG_KEY).unwrap_or_default())
+    }
+
+    fn touchpad_override(
+        config: &cosmic_config::Config,
+    ) -> Result<Option<CosmicTouchpadOverride>, Box<dyn Error>> {
+        Ok(config.get(COSMIC_TOUCHPAD_OVERRIDE_KEY).ok())
     }
 
     fn set_bool(
@@ -187,19 +229,71 @@ impl CosmicTouchpadHandler {
                 "input type:touchpad pointer_accel {}",
                 acceleration.speed
             ))?;
+            if let Some(profile) = acceleration.profile {
+                let profile = match profile {
+                    CosmicAccelProfile::Flat => "flat",
+                    CosmicAccelProfile::Adaptive => "adaptive",
+                };
+                sway_connection
+                    .run_command(format!("input type:touchpad accel_profile {profile}"))?;
+            }
         }
 
+        if let Some(click_method) = input_config.click_method {
+            let method = match click_method {
+                CosmicClickMethod::ButtonAreas => "button_areas",
+                CosmicClickMethod::Clickfinger => "clickfinger",
+            };
+            sway_connection.run_command(format!("input type:touchpad click_method {method}"))?;
+        }
+
+        Self::set_bool(sway_connection, "dwt", input_config.disable_while_typing)?;
         Self::set_bool(sway_connection, "left_handed", input_config.left_handed)?;
+        Self::set_bool(
+            sway_connection,
+            "middle_emulation",
+            input_config.middle_button_emulation,
+        )?;
 
         if let Some(scroll_config) = input_config.scroll_config {
+            if let Some(method) = scroll_config.method {
+                let method = match method {
+                    CosmicScrollMethod::NoScroll => "none",
+                    CosmicScrollMethod::TwoFinger => "two_finger",
+                    CosmicScrollMethod::Edge => "edge",
+                    CosmicScrollMethod::OnButtonDown => "on_button",
+                };
+                sway_connection
+                    .run_command(format!("input type:touchpad scroll_method {method}"))?;
+            }
             Self::set_bool(
                 sway_connection,
                 "natural_scroll",
                 scroll_config.natural_scroll,
             )?;
+            if let Some(factor) = scroll_config.scroll_factor {
+                sway_connection
+                    .run_command(format!("input type:touchpad scroll_factor {factor}"))?;
+            }
+        }
+
+        if let Some(tap_config) = input_config.tap_config {
+            Self::set_bool(sway_connection, "tap", Some(tap_config.enabled))?;
+            Self::set_bool(sway_connection, "tap_and_drag", Some(tap_config.drag))?;
+            Self::set_bool(sway_connection, "drag_lock", Some(tap_config.drag_lock))?;
         }
 
         Ok(())
+    }
+
+    fn log_touchpad_override(config: &cosmic_config::Config) {
+        match Self::touchpad_override(config) {
+            Ok(Some(CosmicTouchpadOverride::ForceDisable)) => debug!(
+                "COSMIC touchpad force-disable is set, but Sway has no type:touchpad enable/disable command"
+            ),
+            Ok(Some(CosmicTouchpadOverride::None)) | Ok(None) => {}
+            Err(err) => error!("Failed to read COSMIC touchpad override: {err}"),
+        }
     }
 }
 
@@ -213,7 +307,9 @@ impl InputHandler for CosmicTouchpadHandler {
     }
 
     fn apply_all(&mut self) -> Result<(), Box<dyn Error>> {
-        Self::apply_input_config(&mut self.sway_connection, Self::input_config()?)
+        let config = cosmic_config::Config::new(COSMIC_COMP_CONFIG, COSMIC_COMP_CONFIG_VERSION)?;
+        Self::log_touchpad_override(&config);
+        Self::apply_input_config(&mut self.sway_connection, Self::input_config_from(&config)?)
     }
 
     fn sync_from_sway_input(&mut self, input: &Input) -> Result<(), Box<dyn Error>> {
@@ -232,20 +328,26 @@ impl InputHandler for CosmicTouchpadHandler {
         };
 
         match config.watch(|config, keys| {
-            if !keys.iter().any(|key| key == COSMIC_TOUCHPAD_CONFIG_KEY) {
+            let touchpad_changed = keys.iter().any(|key| key == COSMIC_TOUCHPAD_CONFIG_KEY);
+            let override_changed = keys.iter().any(|key| key == COSMIC_TOUCHPAD_OVERRIDE_KEY);
+            if !touchpad_changed && !override_changed {
                 return;
             }
 
-            let result = SwayConnection::new()
-                .map_err(|err| -> Box<dyn Error> { Box::new(err) })
-                .and_then(|mut sway_connection| {
-                    Self::input_config_from(config).and_then(|input_config| {
-                        Self::apply_input_config(&mut sway_connection, input_config)
-                    })
-                });
+            Self::log_touchpad_override(config);
 
-            if let Err(err) = result {
-                error!("Failed to apply COSMIC touchpad settings change: {err}");
+            if touchpad_changed {
+                let result = SwayConnection::new()
+                    .map_err(|err| -> Box<dyn Error> { Box::new(err) })
+                    .and_then(|mut sway_connection| {
+                        Self::input_config_from(config).and_then(|input_config| {
+                            Self::apply_input_config(&mut sway_connection, input_config)
+                        })
+                    });
+
+                if let Err(err) = result {
+                    error!("Failed to apply COSMIC touchpad settings change: {err}");
+                }
             }
         }) {
             Ok(watcher) => self._watcher = Some(watcher),
