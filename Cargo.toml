@@ -8,13 +8,14 @@ edition = "2021"
 [features]
 default = ["gnome"]
 gnome = []
-cosmic = []
+cosmic = ["dep:cosmic-config"]
 
 [dependencies]
+cosmic-config = { git = "https://github.com/pop-os/libcosmic", rev = "f6039597b72d3eefe2ee1d6528a04077982db238", optional = true }
 gio = "0.15.12"
 glib = "0.15.12"
 log = "0.4"
 pretty_env_logger = "0.4.0"
 serde = "1.0.151"
 serde_json = "1.0.91"
-swayipc = "3.0.1"
+swayipc = "=3.0.1"

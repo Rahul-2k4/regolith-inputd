@@ -1,7 +1,7 @@
 use crate::traits::InputHandler;
 
 #[cfg(feature = "cosmic")]
-use crate::cosmic::CosmicInputHandler;
+use crate::cosmic::{CosmicInputHandler, CosmicMouseHandler};
 
 #[cfg(feature = "gnome")]
 use crate::{
@@ -61,7 +61,7 @@ fn create_gnome_handlers() -> HandlerSet {
 #[cfg(feature = "cosmic")]
 fn create_cosmic_handlers() -> HandlerSet {
     [
-        Box::new(CosmicInputHandler::new("pointer")),
+        Box::new(CosmicMouseHandler::new()),
         Box::new(CosmicInputHandler::new("keyboard")),
         Box::new(CosmicInputHandler::new("touchpad")),
         Box::new(CosmicInputHandler::new("input-sources")),
