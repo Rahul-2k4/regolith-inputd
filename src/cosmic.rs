@@ -11,6 +11,7 @@ const COSMIC_COMP_CONFIG_VERSION: u64 = 1;
 const COSMIC_MOUSE_CONFIG_KEY: &str = "input_default";
 const COSMIC_TOUCHPAD_CONFIG_KEY: &str = "input_touchpad";
 const COSMIC_TOUCHPAD_OVERRIDE_KEY: &str = "input_touchpad_override";
+const COSMIC_XKB_CONFIG_KEY: &str = "xkb_config";
 
 #[derive(Debug, Default, Deserialize)]
 struct CosmicInputConfig {
@@ -67,6 +68,35 @@ struct CosmicTapConfig {
     enabled: bool,
     drag: bool,
     drag_lock: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct CosmicXkbConfig {
+    layout: String,
+    variant: String,
+    #[serde(default = "default_repeat_delay")]
+    repeat_delay: u32,
+    #[serde(default = "default_repeat_rate")]
+    repeat_rate: u32,
+}
+
+fn default_repeat_delay() -> u32 {
+    600
+}
+
+fn default_repeat_rate() -> u32 {
+    25
+}
+
+impl Default for CosmicXkbConfig {
+    fn default() -> Self {
+        Self {
+            layout: String::new(),
+            variant: String::new(),
+            repeat_delay: default_repeat_delay(),
+            repeat_rate: default_repeat_rate(),
+        }
+    }
 }
 
 pub struct CosmicMouseHandler {
@@ -361,6 +391,7 @@ unsafe impl Send for CosmicTouchpadHandler {}
 pub struct CosmicInputHandler {
     name: &'static str,
     sway_connection: SwayConnection,
+    _watcher: Option<RecommendedWatcher>,
 }
 
 impl CosmicInputHandler {
@@ -368,7 +399,56 @@ impl CosmicInputHandler {
         Self {
             name,
             sway_connection: SwayConnection::new().unwrap(),
+            _watcher: None,
         }
+    }
+
+    fn xkb_config() -> Result<CosmicXkbConfig, Box<dyn Error>> {
+        let config = cosmic_config::Config::new(COSMIC_COMP_CONFIG, COSMIC_COMP_CONFIG_VERSION)?;
+        Self::xkb_config_from(&config)
+    }
+
+    fn xkb_config_from(config: &cosmic_config::Config) -> Result<CosmicXkbConfig, Box<dyn Error>> {
+        Ok(config.get(COSMIC_XKB_CONFIG_KEY).unwrap_or_default())
+    }
+
+    fn commands_for_config(name: &str, xkb_config: &CosmicXkbConfig) -> Vec<String> {
+        match name {
+            "keyboard" => vec![
+                format!(
+                    "input type:keyboard repeat_delay {}",
+                    xkb_config.repeat_delay
+                ),
+                format!("input type:keyboard repeat_rate {}", xkb_config.repeat_rate),
+            ],
+            "input-sources" if !xkb_config.layout.is_empty() => {
+                let mut commands = Vec::new();
+                if !xkb_config.variant.is_empty() {
+                    commands.push(format!(
+                        "input type:keyboard xkb_variant '{}'",
+                        xkb_config.variant
+                    ));
+                }
+                commands.push(format!(
+                    "input type:keyboard xkb_layout '{}'",
+                    xkb_config.layout
+                ));
+                commands
+            }
+            "input-sources" => Vec::new(),
+            _ => Vec::new(),
+        }
+    }
+
+    fn apply_xkb_config(
+        sway_connection: &mut SwayConnection,
+        name: &str,
+        xkb_config: CosmicXkbConfig,
+    ) -> Result<(), Box<dyn Error>> {
+        for command in Self::commands_for_config(name, &xkb_config) {
+            sway_connection.run_command(command)?;
+        }
+        Ok(())
     }
 }
 
@@ -378,30 +458,132 @@ impl InputHandler for CosmicInputHandler {
     }
 
     fn apply_changes(&mut self, key: &str) -> Result<(), Box<dyn Error>> {
-        debug!(
-            "COSMIC input handler '{}' has no settings apply path for key '{}' yet",
-            self.name, key
-        );
+        if key == COSMIC_XKB_CONFIG_KEY {
+            self.apply_all()?;
+        } else {
+            debug!(
+                "COSMIC input handler '{}' ignores unsupported settings key '{}'",
+                self.name, key
+            );
+        }
         Ok(())
     }
 
     fn apply_all(&mut self) -> Result<(), Box<dyn Error>> {
-        debug!(
-            "COSMIC input handler '{}' has no settings apply path yet",
-            self.name
-        );
-        Ok(())
+        Self::apply_xkb_config(&mut self.sway_connection, self.name, Self::xkb_config()?)
     }
 
     fn sync_from_sway_input(&mut self, input: &Input) -> Result<(), Box<dyn Error>> {
+        // TODO: Map Sway keyboard state back into COSMIC xkb_config when reverse sync is in scope.
         debug!(
-            "COSMIC input handler '{}' has no sync path for sway input type '{}' yet",
+            "COSMIC input handler '{}' does not sync sway input type '{}' back to cosmic-config yet",
             self.name, input.input_type
         );
         Ok(())
     }
 
-    fn monitor_settings_change(&mut self) {}
+    fn monitor_settings_change(&mut self) {
+        let Ok(config) = cosmic_config::Config::new(COSMIC_COMP_CONFIG, COSMIC_COMP_CONFIG_VERSION)
+        else {
+            error!(
+                "Failed to create COSMIC config watcher for {} settings",
+                self.name
+            );
+            return;
+        };
+
+        let name = self.name;
+        match config.watch(move |config, keys| {
+            if !keys.iter().any(|key| key == COSMIC_XKB_CONFIG_KEY) {
+                return;
+            }
+
+            let result = SwayConnection::new()
+                .map_err(|err| -> Box<dyn Error> { Box::new(err) })
+                .and_then(|mut sway_connection| {
+                    Self::xkb_config_from(config).and_then(|xkb_config| {
+                        Self::apply_xkb_config(&mut sway_connection, name, xkb_config)
+                    })
+                });
+
+            if let Err(err) = result {
+                error!("Failed to apply COSMIC {name} settings change: {err}");
+            }
+        }) {
+            Ok(watcher) => self._watcher = Some(watcher),
+            Err(err) => error!("Failed to watch COSMIC {} settings: {err}", self.name),
+        }
+    }
 }
 
 unsafe impl Send for CosmicInputHandler {}
+
+#[cfg(test)]
+mod tests {
+    use super::{CosmicInputHandler, CosmicXkbConfig};
+
+    #[test]
+    fn default_xkb_config_maps_keyboard_repeat_and_skips_input_sources() {
+        let config = CosmicXkbConfig::default();
+
+        assert_eq!(
+            CosmicInputHandler::commands_for_config("keyboard", &config),
+            vec![
+                "input type:keyboard repeat_delay 600".to_string(),
+                "input type:keyboard repeat_rate 25".to_string(),
+            ]
+        );
+        assert!(CosmicInputHandler::commands_for_config("input-sources", &config).is_empty());
+    }
+
+    #[test]
+    fn maps_cosmic_keyboard_repeat_to_sway_commands() {
+        let config = CosmicXkbConfig {
+            repeat_delay: 450,
+            repeat_rate: 35,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            CosmicInputHandler::commands_for_config("keyboard", &config),
+            vec![
+                "input type:keyboard repeat_delay 450".to_string(),
+                "input type:keyboard repeat_rate 35".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn maps_cosmic_xkb_layout_and_variant_to_sway_commands() {
+        let config = CosmicXkbConfig {
+            layout: "us,ara".to_string(),
+            variant: ",azerty".to_string(),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            CosmicInputHandler::commands_for_config("input-sources", &config),
+            vec![
+                "input type:keyboard xkb_variant ',azerty'".to_string(),
+                "input type:keyboard xkb_layout 'us,ara'".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn skips_input_sources_commands_when_layout_is_empty() {
+        let config = CosmicXkbConfig {
+            variant: "azerty".to_string(),
+            ..Default::default()
+        };
+
+        assert!(CosmicInputHandler::commands_for_config("input-sources", &config).is_empty());
+    }
+
+    #[test]
+    fn leaves_unknown_cosmic_input_handler_without_commands() {
+        let config = CosmicXkbConfig::default();
+
+        assert!(CosmicInputHandler::commands_for_config("unknown", &config).is_empty());
+    }
+}
