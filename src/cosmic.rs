@@ -523,6 +523,38 @@ mod tests {
     use super::{CosmicInputHandler, CosmicXkbConfig};
 
     #[test]
+    fn keyboard_commands_ignore_layout_variant_and_only_emit_repeat() {
+        let config = CosmicXkbConfig {
+            layout: "us,ara".to_string(),
+            variant: ",azerty".to_string(),
+            repeat_delay: 450,
+            repeat_rate: 35,
+        };
+
+        assert_eq!(
+            CosmicInputHandler::commands_for_config("keyboard", &config),
+            vec![
+                "input type:keyboard repeat_delay 450".to_string(),
+                "input type:keyboard repeat_rate 35".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn input_sources_layout_without_variant_emits_only_layout() {
+        let config = CosmicXkbConfig {
+            layout: "us,ara".to_string(),
+            variant: String::new(),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            CosmicInputHandler::commands_for_config("input-sources", &config),
+            vec!["input type:keyboard xkb_layout 'us,ara'".to_string()]
+        );
+    }
+
+    #[test]
     fn default_xkb_config_maps_keyboard_repeat_and_skips_input_sources() {
         let config = CosmicXkbConfig::default();
 
