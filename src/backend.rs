@@ -100,4 +100,21 @@ mod tests {
             BackendKind::Cosmic
         );
     }
+
+    #[test]
+    fn defaults_to_gnome_when_desktop_is_unset_or_unrecognized() {
+        assert_eq!(BackendKind::from_desktop_value(""), BackendKind::Gnome);
+        assert_eq!(
+            BackendKind::from_desktop_value("Regolith-Wayland:sway"),
+            BackendKind::Gnome
+        );
+    }
+
+    #[test]
+    fn does_not_select_cosmic_for_partial_desktop_name() {
+        assert_eq!(
+            BackendKind::from_desktop_value("Regolith-Wayland:cosmic-like:sway"),
+            BackendKind::Gnome
+        );
+    }
 }
