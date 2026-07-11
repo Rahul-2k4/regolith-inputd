@@ -238,18 +238,6 @@ impl CosmicTouchpadHandler {
         Ok(config.get(COSMIC_TOUCHPAD_OVERRIDE_KEY).ok())
     }
 
-    fn set_bool(
-        sway_connection: &mut SwayConnection,
-        option: &str,
-        value: Option<bool>,
-    ) -> Result<(), Box<dyn Error>> {
-        if let Some(value) = value {
-            let sway_value = if value { "enabled" } else { "disabled" };
-            sway_connection.run_command(format!("input type:touchpad {option} {sway_value}"))?;
-        }
-        Ok(())
-    }
-
     fn commands_for_config(input_config: CosmicInputConfig) -> Vec<String> {
         let mut commands = Vec::new();
         if let Some(acceleration) = input_config.acceleration {
