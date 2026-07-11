@@ -250,69 +250,102 @@ impl CosmicTouchpadHandler {
         Ok(())
     }
 
+    fn commands_for_config(input_config: CosmicInputConfig) -> Vec<String> {
+        let mut commands = Vec::new();
+        if let Some(acceleration) = input_config.acceleration {
+            commands.push(format!(
+                "input type:touchpad pointer_accel {}",
+                acceleration.speed
+            ));
+            if let Some(profile) = acceleration.profile {
+                commands.push(format!(
+                    "input type:touchpad accel_profile {}",
+                    match profile {
+                        CosmicAccelProfile::Flat => "flat",
+                        CosmicAccelProfile::Adaptive => "adaptive",
+                    }
+                ));
+            }
+        }
+        if let Some(click_method) = input_config.click_method {
+            commands.push(format!(
+                "input type:touchpad click_method {}",
+                match click_method {
+                    CosmicClickMethod::ButtonAreas => "button_areas",
+                    CosmicClickMethod::Clickfinger => "clickfinger",
+                }
+            ));
+        }
+        for (option, value) in [
+            ("dwt", input_config.disable_while_typing),
+            ("left_handed", input_config.left_handed),
+            ("middle_emulation", input_config.middle_button_emulation),
+        ] {
+            if let Some(value) = value {
+                commands.push(format!(
+                    "input type:touchpad {option} {}",
+                    if value { "enabled" } else { "disabled" }
+                ));
+            }
+        }
+        if let Some(scroll_config) = input_config.scroll_config {
+            if let Some(method) = scroll_config.method {
+                commands.push(format!(
+                    "input type:touchpad scroll_method {}",
+                    match method {
+                        CosmicScrollMethod::NoScroll => "none",
+                        CosmicScrollMethod::TwoFinger => "two_finger",
+                        CosmicScrollMethod::Edge => "edge",
+                        CosmicScrollMethod::OnButtonDown => "on_button",
+                    }
+                ));
+            }
+            if let Some(value) = scroll_config.natural_scroll {
+                commands.push(format!(
+                    "input type:touchpad natural_scroll {}",
+                    if value { "enabled" } else { "disabled" }
+                ));
+            }
+            if let Some(factor) = scroll_config.scroll_factor {
+                commands.push(format!("input type:touchpad scroll_factor {factor}"));
+            }
+        }
+        if let Some(tap_config) = input_config.tap_config {
+            commands.push(format!(
+                "input type:touchpad tap {}",
+                if tap_config.enabled {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            ));
+            commands.push(format!(
+                "input type:touchpad tap_and_drag {}",
+                if tap_config.drag {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            ));
+            commands.push(format!(
+                "input type:touchpad drag_lock {}",
+                if tap_config.drag_lock {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            ));
+        }
+        commands
+    }
+
     fn apply_input_config(
         sway_connection: &mut SwayConnection,
         input_config: CosmicInputConfig,
     ) -> Result<(), Box<dyn Error>> {
-        if let Some(acceleration) = input_config.acceleration {
-            sway_connection.run_command(format!(
-                "input type:touchpad pointer_accel {}",
-                acceleration.speed
-            ))?;
-            if let Some(profile) = acceleration.profile {
-                let profile = match profile {
-                    CosmicAccelProfile::Flat => "flat",
-                    CosmicAccelProfile::Adaptive => "adaptive",
-                };
-                sway_connection
-                    .run_command(format!("input type:touchpad accel_profile {profile}"))?;
-            }
+        for command in Self::commands_for_config(input_config) {
+            sway_connection.run_command(command)?;
         }
-
-        if let Some(click_method) = input_config.click_method {
-            let method = match click_method {
-                CosmicClickMethod::ButtonAreas => "button_areas",
-                CosmicClickMethod::Clickfinger => "clickfinger",
-            };
-            sway_connection.run_command(format!("input type:touchpad click_method {method}"))?;
-        }
-
-        Self::set_bool(sway_connection, "dwt", input_config.disable_while_typing)?;
-        Self::set_bool(sway_connection, "left_handed", input_config.left_handed)?;
-        Self::set_bool(
-            sway_connection,
-            "middle_emulation",
-            input_config.middle_button_emulation,
-        )?;
-
-        if let Some(scroll_config) = input_config.scroll_config {
-            if let Some(method) = scroll_config.method {
-                let method = match method {
-                    CosmicScrollMethod::NoScroll => "none",
-                    CosmicScrollMethod::TwoFinger => "two_finger",
-                    CosmicScrollMethod::Edge => "edge",
-                    CosmicScrollMethod::OnButtonDown => "on_button",
-                };
-                sway_connection
-                    .run_command(format!("input type:touchpad scroll_method {method}"))?;
-            }
-            Self::set_bool(
-                sway_connection,
-                "natural_scroll",
-                scroll_config.natural_scroll,
-            )?;
-            if let Some(factor) = scroll_config.scroll_factor {
-                sway_connection
-                    .run_command(format!("input type:touchpad scroll_factor {factor}"))?;
-            }
-        }
-
-        if let Some(tap_config) = input_config.tap_config {
-            Self::set_bool(sway_connection, "tap", Some(tap_config.enabled))?;
-            Self::set_bool(sway_connection, "tap_and_drag", Some(tap_config.drag))?;
-            Self::set_bool(sway_connection, "drag_lock", Some(tap_config.drag_lock))?;
-        }
-
         Ok(())
     }
 
@@ -520,7 +553,78 @@ unsafe impl Send for CosmicInputHandler {}
 
 #[cfg(test)]
 mod tests {
-    use super::{CosmicInputHandler, CosmicXkbConfig};
+    use super::{CosmicInputConfig, CosmicInputHandler, CosmicXkbConfig};
+
+    #[test]
+    fn touchpad_commands_map_acceleration_profile_click_and_scroll() {
+        let config = CosmicInputConfig {
+            acceleration: Some(super::CosmicAccelConfig {
+                profile: Some(super::CosmicAccelProfile::Adaptive),
+                speed: 0.4,
+            }),
+            click_method: Some(super::CosmicClickMethod::Clickfinger),
+            scroll_config: Some(super::CosmicScrollConfig {
+                method: Some(super::CosmicScrollMethod::TwoFinger),
+                natural_scroll: Some(true),
+                scroll_factor: Some(1.25),
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            super::CosmicTouchpadHandler::commands_for_config(config),
+            vec![
+                "input type:touchpad pointer_accel 0.4",
+                "input type:touchpad accel_profile adaptive",
+                "input type:touchpad click_method clickfinger",
+                "input type:touchpad scroll_method two_finger",
+                "input type:touchpad natural_scroll enabled",
+                "input type:touchpad scroll_factor 1.25"
+            ]
+        );
+    }
+
+    #[test]
+    fn touchpad_commands_map_tap_drag_and_drag_lock() {
+        let config = CosmicInputConfig {
+            tap_config: Some(super::CosmicTapConfig {
+                enabled: true,
+                drag: false,
+                drag_lock: true,
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            super::CosmicTouchpadHandler::commands_for_config(config),
+            vec![
+                "input type:touchpad tap enabled",
+                "input type:touchpad tap_and_drag disabled",
+                "input type:touchpad drag_lock enabled"
+            ]
+        );
+    }
+
+    #[test]
+    fn touchpad_commands_skip_partial_optional_configs() {
+        let config = CosmicInputConfig {
+            acceleration: Some(super::CosmicAccelConfig {
+                profile: None,
+                speed: -0.2,
+            }),
+            scroll_config: Some(super::CosmicScrollConfig {
+                method: Some(super::CosmicScrollMethod::NoScroll),
+                natural_scroll: None,
+                scroll_factor: None,
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            super::CosmicTouchpadHandler::commands_for_config(config),
+            vec![
+                "input type:touchpad pointer_accel -0.2",
+                "input type:touchpad scroll_method none"
+            ]
+        );
+    }
 
     #[test]
     fn keyboard_commands_ignore_layout_variant_and_only_emit_repeat() {
