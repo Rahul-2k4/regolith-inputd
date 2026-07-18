@@ -12,4 +12,4 @@ RUSTUP_PATH ?= $(if $(filter /home/%,$(RUSTUP)),$(dir $(RUSTUP)),)
 
 build:
 	mkdir -p debian/tmp_files/.cargo
-	PATH="$(RUSTUP_PATH)$$PATH" RUSTUP_HOME="$(RUSTUP_HOME)" CARGO_HOME=debian/tmp_files/.cargo $(CARGO) build --release --no-default-features --features $(CARGO_FEATURES)
+	PATH="$(RUSTUP_PATH)$$PATH" RUSTUP_HOME="$(RUSTUP_HOME)" RUSTUP_TOOLCHAIN="$(RUST_TOOLCHAIN)" CARGO_HOME=debian/tmp_files/.cargo $(CARGO) build --release --no-default-features --features $(CARGO_FEATURES)
