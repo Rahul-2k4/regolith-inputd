@@ -7,3 +7,10 @@
 
 %:
 	dh $@
+
+override_dh_auto_build:
+	if test -n "$(strip $(RUST_TOOLCHAIN))"; then \
+		dh_auto_build -- RUST_TOOLCHAIN="$(RUST_TOOLCHAIN)"; \
+	else \
+		dh_auto_build; \
+	fi
