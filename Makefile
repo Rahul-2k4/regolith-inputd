@@ -7,7 +7,9 @@ endif
 SUDO_USER_HOME ?= $(shell if test -n "$$SUDO_USER"; then getent passwd "$$SUDO_USER" 2>/dev/null | cut -d: -f6; fi)
 RUSTUP_HOME ?= $(if $(strip $(SUDO_USER_HOME)),$(SUDO_USER_HOME)/.rustup,$(HOME)/.rustup)
 RUSTUP ?= $(if $(wildcard $(if $(strip $(SUDO_USER_HOME)),$(SUDO_USER_HOME),$(HOME))/.cargo/bin/rustup),$(if $(strip $(SUDO_USER_HOME)),$(SUDO_USER_HOME),$(HOME))/.cargo/bin/rustup,$(shell command -v rustup 2>/dev/null || printf '%s' rustup))
-CARGO ?= $(shell toolchain=$$(if command -v "$(RUSTUP)" >/dev/null 2>&1; then RUSTUP_HOME="$(RUSTUP_HOME)" "$(RUSTUP)" toolchain list 2>/dev/null | awk -v prefix="$(RUST_TOOLCHAIN)" '$$1 ~ ("^" prefix "([.-]|$$)") { print $$1; exit }'; fi); if test -n "$$toolchain"; then printf '%s' "$(RUSTUP) run $$toolchain cargo"; else printf '%s' cargo; fi)
+# Run through rustup so a missing requested toolchain cannot silently select the
+# system cargo. Packagers may still override CARGO explicitly.
+CARGO ?= $(RUSTUP) run $(RUST_TOOLCHAIN) cargo
 RUSTUP_PATH ?= $(if $(filter /home/%,$(RUSTUP)),$(dir $(RUSTUP)),)
 
 build:
