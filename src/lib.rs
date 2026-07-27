@@ -54,7 +54,9 @@ impl GateState {
     pub(crate) fn end_suppression(&self) {
         if self
             .suppressions
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| count.checked_sub(1))
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                count.checked_sub(1)
+            })
             .is_err()
         {
             warn!("Ignored unmatched input gate suppression release");
