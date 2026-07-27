@@ -1,8 +1,24 @@
 use log::{error, info, warn};
-use std::{error::Error, fmt::Display, thread, time::Duration};
+use std::{
+    error::Error,
+    fmt::Display,
+    sync::{Mutex, MutexGuard},
+    thread,
+    time::Duration,
+};
 use swayipc::{Connection as SwayConnection, EventStream, EventType, Fallible, Input};
 
 use crate::HandlerList;
+
+pub fn recover_lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            warn!("Recovering poisoned input handler lock");
+            poisoned.into_inner()
+        }
+    }
+}
 
 pub fn sync_input_settings<'a>(
     handlers_sref: &'a mut HandlerList,
@@ -16,7 +32,7 @@ pub fn sync_input_settings<'a>(
         _ => return Err("Incompatible input type".into()),
     };
     info!("Recieved Sway InputEvent for {}", input.input_type);
-    let mut handlers_lock = handlers_sref.lock()?;
+    let mut handlers_lock = recover_lock(handlers_sref);
     handlers_lock[handler_index].sync_from_sway_input_sync(input)?;
     Ok(())
 }
@@ -46,5 +62,25 @@ where
                 thread::sleep(duration_before_retry);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::recover_lock;
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+
+    #[test]
+    fn recovers_inner_value_from_poisoned_lock() {
+        let mutex = Arc::new(Mutex::new(7));
+        let poisoned = Arc::clone(&mutex);
+        let _ = thread::spawn(move || {
+            let _guard = poisoned.lock().unwrap();
+            panic!("poison test");
+        })
+        .join();
+
+        assert_eq!(*recover_lock(&mutex), 7);
     }
 }
