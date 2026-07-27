@@ -14,3 +14,7 @@ override_dh_auto_build:
 	else \
 		dh_auto_build; \
 	fi
+
+override_dh_auto_test:
+	./tests/package-metadata.sh
+	dh_auto_test
