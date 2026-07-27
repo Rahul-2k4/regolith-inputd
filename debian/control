@@ -10,6 +10,5 @@ Package: regolith-inputd
 Architecture: any
 Multi-Arch: foreign
 Depends: ${misc:Depends}, ${shlibs:Depends} 
-Description: Daemon for synchronizing between 
-  the input states stored in gsettings and sway 
-  by providing relevant dbus bindings
+Description: Daemon for synchronizing input settings across desktop backends
+  including GNOME, COSMIC, and Sway by providing relevant D-Bus bindings

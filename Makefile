@@ -16,3 +16,6 @@ RUSTUP_PATH ?= $(if $(filter /home/%,$(RUSTUP)),$(dir $(RUSTUP)),)
 build:
 	mkdir -p debian/tmp_files/.cargo
 	RUSTC="$(RUSTC)" RUSTC_WRAPPER= RUSTC_WORKSPACE_WRAPPER= PATH="$(RUSTUP_PATH)$$PATH" RUSTUP_HOME="$(RUSTUP_HOME)" RUSTUP_TOOLCHAIN="$(RUST_TOOLCHAIN)" CARGO_HOME=debian/tmp_files/.cargo $(CARGO) build --release --no-default-features --features $(CARGO_FEATURES)
+
+test-package-metadata:
+	./tests/package-metadata.sh
