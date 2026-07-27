@@ -16,5 +16,7 @@ override_dh_auto_build:
 	fi
 
 override_dh_auto_test:
+ifneq (nocheck,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 	./tests/package-metadata.sh
+endif
 	dh_auto_test
