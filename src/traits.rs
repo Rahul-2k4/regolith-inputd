@@ -5,12 +5,32 @@ use gio::{traits::SettingsExt, Settings};
 #[cfg(feature = "gnome")]
 use log::error;
 use std::error::Error;
-use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::Duration;
 use swayipc::{Connection as SwayConnection, EnabledOrDisabled, Input, SendEvents};
 
 use crate::{ALLOW_SETTINGS_APPLY, ALLOW_SWAYINPUT_APPLY};
+
+struct GateRestore<'a> {
+    gate: &'a crate::GateState,
+}
+
+impl Drop for GateRestore<'_> {
+    fn drop(&mut self) {
+        self.gate.end_suppression();
+    }
+}
+
+fn with_gate_suppressed<T, E, F>(gate: &crate::GateState, action: F) -> Result<T, E>
+where
+    F: FnOnce() -> Result<T, E>,
+{
+    gate.begin_suppression();
+    let restore = GateRestore { gate };
+    let result = action();
+    drop(restore);
+    result
+}
 
 pub trait InputHandler {
     fn sway_connection(&mut self) -> &mut SwayConnection;
@@ -20,44 +40,84 @@ pub trait InputHandler {
     fn monitor_settings_change(&mut self);
 
     fn apply_changes_sync(&mut self, key: &str) -> Result<(), Box<dyn Error>> {
-        ALLOW_SWAYINPUT_APPLY.store(false, Ordering::Relaxed);
-        let result = self.apply_changes(key);
-
-        thread::sleep(Duration::from_millis(100));
-
-        let allow = ALLOW_SWAYINPUT_APPLY.load(Ordering::Relaxed) && true;
-        ALLOW_SWAYINPUT_APPLY.store(allow, Ordering::Relaxed);
-        result
+        with_gate_suppressed(&ALLOW_SWAYINPUT_APPLY, || {
+            let result = self.apply_changes(key);
+            thread::sleep(Duration::from_millis(100));
+            result
+        })
     }
 
     fn apply_all_sync(&mut self) -> Result<(), Box<dyn Error>> {
-        if !ALLOW_SETTINGS_APPLY.load(Ordering::Relaxed) {
+        if !ALLOW_SETTINGS_APPLY.is_enabled() {
             return Ok(());
         }
-        ALLOW_SWAYINPUT_APPLY.store(false, Ordering::Relaxed);
-
-        let result = self.apply_all();
-
-        thread::sleep(Duration::from_millis(100));
-
-        let allow = ALLOW_SWAYINPUT_APPLY.load(Ordering::Relaxed) && true;
-        ALLOW_SWAYINPUT_APPLY.store(allow, Ordering::Relaxed);
-        result
+        with_gate_suppressed(&ALLOW_SWAYINPUT_APPLY, || {
+            let result = self.apply_all();
+            thread::sleep(Duration::from_millis(100));
+            result
+        })
     }
 
     fn sync_from_sway_input_sync(&mut self, input: &Input) -> Result<(), Box<dyn Error>> {
-        if !ALLOW_SWAYINPUT_APPLY.load(Ordering::Relaxed) {
+        if !ALLOW_SWAYINPUT_APPLY.is_enabled() {
             return Ok(());
         }
-        ALLOW_SETTINGS_APPLY.store(false, Ordering::Relaxed);
+        with_gate_suppressed(&ALLOW_SETTINGS_APPLY, || {
+            let result = self.sync_from_sway_input(input);
+            thread::sleep(Duration::from_millis(100));
+            result
+        })
+    }
+}
 
-        let result = self.sync_from_sway_input(input);
+#[cfg(test)]
+mod tests {
+    use super::with_gate_suppressed;
+    use crate::GateState;
+    use std::sync::Arc;
+    use std::thread;
 
-        thread::sleep(Duration::from_millis(100));
+    #[test]
+    fn restores_gate_after_failed_operation() {
+        let gate = GateState::new(true);
+        let result: Result<(), &str> = with_gate_suppressed(&gate, || Err("failed"));
 
-        let allow = ALLOW_SETTINGS_APPLY.load(Ordering::Relaxed) && true;
-        ALLOW_SETTINGS_APPLY.store(allow, Ordering::Relaxed);
-        result
+        assert_eq!(result, Err("failed"));
+        assert!(gate.is_enabled());
+    }
+
+    #[test]
+    fn preserves_existing_suppression_after_operation() {
+        let gate = GateState::new(false);
+        let result: Result<(), &str> = with_gate_suppressed(&gate, || Ok(()));
+
+        assert_eq!(result, Ok(()));
+        assert!(!gate.is_enabled());
+    }
+
+    #[test]
+    fn overlapping_suppressions_stay_disabled_until_last_finishes() {
+        let gate = Arc::new(GateState::new(true));
+        gate.begin_suppression();
+        let other = Arc::clone(&gate);
+        let worker = thread::spawn(move || {
+            other.begin_suppression();
+            assert!(!other.is_enabled());
+            other.end_suppression();
+        });
+        worker.join().unwrap();
+        assert!(!gate.is_enabled());
+        gate.end_suppression();
+        assert!(gate.is_enabled());
+    }
+
+    #[test]
+    fn unmatched_suppression_release_does_not_wrap_counter() {
+        let gate = GateState::new(true);
+
+        gate.end_suppression();
+
+        assert!(gate.is_enabled());
     }
 }
 

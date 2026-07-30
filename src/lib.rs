@@ -19,15 +19,53 @@ use log::{debug, warn};
 use serde::Deserialize;
 use std::error::Error;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc, Mutex,
 };
 use std::thread;
 use std::time::Duration;
 use swayipc::{Event, TickEvent};
 
-static ALLOW_SWAYINPUT_APPLY: AtomicBool = AtomicBool::new(true);
-static ALLOW_SETTINGS_APPLY: AtomicBool = AtomicBool::new(true);
+pub(crate) struct GateState {
+    requested: AtomicBool,
+    suppressions: AtomicUsize,
+}
+
+impl GateState {
+    pub(crate) const fn new(enabled: bool) -> Self {
+        Self {
+            requested: AtomicBool::new(enabled),
+            suppressions: AtomicUsize::new(0),
+        }
+    }
+
+    pub(crate) fn is_enabled(&self) -> bool {
+        self.requested.load(Ordering::Relaxed) && self.suppressions.load(Ordering::Relaxed) == 0
+    }
+
+    pub(crate) fn set_requested(&self, enabled: bool) {
+        self.requested.store(enabled, Ordering::Relaxed);
+    }
+
+    pub(crate) fn begin_suppression(&self) {
+        self.suppressions.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn end_suppression(&self) {
+        if self
+            .suppressions
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                count.checked_sub(1)
+            })
+            .is_err()
+        {
+            warn!("Ignored unmatched input gate suppression release");
+        }
+    }
+}
+
+static ALLOW_SWAYINPUT_APPLY: GateState = GateState::new(true);
+static ALLOW_SETTINGS_APPLY: GateState = GateState::new(true);
 
 // Type Aliases
 type SharedRef<T> = Arc<Mutex<T>>;
@@ -82,8 +120,10 @@ impl SettingsManager {
         );
         for event in event_stream {
             match event {
-                Ok(Event::Input(event)) if ALLOW_SWAYINPUT_APPLY.load(Ordering::Relaxed) => {
-                    utils::sync_input_settings(&mut handlers_sref, &event.input).unwrap();
+                Ok(Event::Input(event)) if ALLOW_SWAYINPUT_APPLY.is_enabled() => {
+                    if let Err(e) = utils::sync_input_settings(&mut handlers_sref, &event.input) {
+                        warn!("Failed to sync input settings: {e}");
+                    }
                 }
                 Ok(Event::Tick(TickEvent {
                     payload,
@@ -95,27 +135,25 @@ impl SettingsManager {
                         Ok(SwayReloadTick {
                             status: ReloadPending,
                         }) => {
-                            ALLOW_SWAYINPUT_APPLY.store(false, Ordering::Relaxed);
+                            ALLOW_SWAYINPUT_APPLY.set_requested(false);
                             info!(
                                 "Recieved tick, allow_sync = {}",
-                                ALLOW_SWAYINPUT_APPLY.load(Ordering::Relaxed)
+                                ALLOW_SWAYINPUT_APPLY.is_enabled()
                             );
                         }
                         Ok(SwayReloadTick { status: ReloadDone }) => {
                             thread::sleep(Duration::from_millis(100));
-                            ALLOW_SWAYINPUT_APPLY.store(true, Ordering::Relaxed);
+                            ALLOW_SWAYINPUT_APPLY.set_requested(true);
                             info!(
                                 "Recieved tick, allow_sync = {}",
-                                ALLOW_SWAYINPUT_APPLY.load(Ordering::Relaxed)
+                                ALLOW_SWAYINPUT_APPLY.is_enabled()
                             );
                             info!("Sway reload done - Reapplying configurations from settings");
-                            let mut handlers_lock = handlers_sref
-                                .lock()
-                                .expect("Acquired lock for handers_sref");
+                            let mut handlers_lock = utils::recover_lock(&handlers_sref);
                             for handle in handlers_lock.iter_mut() {
-                                handle
-                                    .apply_all_sync()
-                                    .expect("Failed to re-apply configs from gsettings");
+                                if let Err(e) = handle.apply_all_sync() {
+                                    warn!("Failed to re-apply input settings: {e}");
+                                }
                             }
                         }
                         Err(e) => debug!("Invalid Payload Recieved: {e}"),
