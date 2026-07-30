@@ -13,6 +13,13 @@ const COSMIC_TOUCHPAD_CONFIG_KEY: &str = "input_touchpad";
 const COSMIC_TOUCHPAD_OVERRIDE_KEY: &str = "input_touchpad_override";
 const COSMIC_XKB_CONFIG_KEY: &str = "xkb_config";
 
+fn has_key(keys: &[String], expected: &str) -> bool {
+    keys.iter().any(|key| key == expected)
+}
+fn touchpad_watch_triggers(keys: &[String]) -> bool {
+    has_key(keys, COSMIC_TOUCHPAD_CONFIG_KEY) || has_key(keys, COSMIC_TOUCHPAD_OVERRIDE_KEY)
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct CosmicInputConfig {
     acceleration: Option<CosmicAccelConfig>,
@@ -189,7 +196,7 @@ impl InputHandler for CosmicMouseHandler {
         };
 
         match config.watch(|config, keys| {
-            if !keys.iter().any(|key| key == COSMIC_MOUSE_CONFIG_KEY) {
+            if !has_key(keys, COSMIC_MOUSE_CONFIG_KEY) {
                 return;
             }
 
@@ -379,9 +386,8 @@ impl InputHandler for CosmicTouchpadHandler {
         };
 
         match config.watch(|config, keys| {
-            let touchpad_changed = keys.iter().any(|key| key == COSMIC_TOUCHPAD_CONFIG_KEY);
-            let override_changed = keys.iter().any(|key| key == COSMIC_TOUCHPAD_OVERRIDE_KEY);
-            if !touchpad_changed && !override_changed {
+            let touchpad_changed = has_key(keys, COSMIC_TOUCHPAD_CONFIG_KEY);
+            if !touchpad_watch_triggers(keys) {
                 return;
             }
 
@@ -515,7 +521,7 @@ impl InputHandler for CosmicInputHandler {
 
         let name = self.name;
         match config.watch(move |config, keys| {
-            if !keys.iter().any(|key| key == COSMIC_XKB_CONFIG_KEY) {
+            if !has_key(keys, COSMIC_XKB_CONFIG_KEY) {
                 return;
             }
 
@@ -542,6 +548,49 @@ unsafe impl Send for CosmicInputHandler {}
 #[cfg(test)]
 mod tests {
     use super::{CosmicInputConfig, CosmicInputHandler, CosmicXkbConfig};
+
+    #[test]
+    fn watcher_filters_match_supported_keys_only() {
+        assert!(super::has_key(
+            &["xkb_config".into()],
+            super::COSMIC_XKB_CONFIG_KEY
+        ));
+        assert!(super::has_key(
+            &["input_default".into()],
+            super::COSMIC_MOUSE_CONFIG_KEY
+        ));
+        assert!(!super::has_key(
+            &["other".into()],
+            super::COSMIC_XKB_CONFIG_KEY
+        ));
+    }
+
+    #[test]
+    fn touchpad_watcher_triggers_for_config_or_override() {
+        assert!(super::touchpad_watch_triggers(&["input_touchpad".into()]));
+        assert!(super::touchpad_watch_triggers(&[
+            "input_touchpad_override".into()
+        ]));
+        assert!(!super::touchpad_watch_triggers(&["other".into()]));
+    }
+
+    #[test]
+    fn keyboard_and_input_source_mapping_stays_split() {
+        let config = CosmicXkbConfig {
+            layout: "us".into(),
+            variant: String::new(),
+            repeat_delay: 500,
+            repeat_rate: 30,
+        };
+        assert_eq!(
+            CosmicInputHandler::commands_for_config("keyboard", &config).len(),
+            2
+        );
+        assert_eq!(
+            CosmicInputHandler::commands_for_config("input-sources", &config),
+            vec!["input type:keyboard xkb_layout 'us'".to_string()]
+        );
+    }
 
     #[test]
     fn touchpad_commands_map_acceleration_profile_click_and_scroll() {
