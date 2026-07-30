@@ -20,6 +20,10 @@ pub fn recover_lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     }
 }
 
+pub fn is_supported_input_type(input_type: &str) -> bool {
+    matches!(input_type, "pointer" | "keyboard" | "touchpad")
+}
+
 pub fn sync_input_settings(
     handlers_sref: &mut HandlerList,
     input: &Input,
@@ -81,7 +85,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{recover_lock, retry_fallible};
+    use super::{is_supported_input_type, recover_lock, retry_fallible};
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
@@ -97,6 +101,14 @@ mod tests {
         .join();
 
         assert_eq!(*recover_lock(&mutex), 7);
+    }
+
+    #[test]
+    fn recognizes_only_supported_input_types() {
+        assert!(is_supported_input_type("pointer"));
+        assert!(is_supported_input_type("keyboard"));
+        assert!(is_supported_input_type("touchpad"));
+        assert!(!is_supported_input_type("tablet"));
     }
 
     #[test]

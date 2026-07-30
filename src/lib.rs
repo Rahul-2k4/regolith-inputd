@@ -121,6 +121,13 @@ impl SettingsManager {
         for event in event_stream {
             match event {
                 Ok(Event::Input(event)) if ALLOW_SWAYINPUT_APPLY.is_enabled() => {
+                    if !utils::is_supported_input_type(&event.input.input_type) {
+                        warn!(
+                            "Ignoring unsupported Sway input type: {}",
+                            event.input.input_type
+                        );
+                        continue;
+                    }
                     if let Err(e) = utils::retry_fallible(
                         || utils::sync_input_settings(&mut handlers_sref, &event.input),
                         5,
@@ -153,13 +160,17 @@ impl SettingsManager {
                                 ALLOW_SWAYINPUT_APPLY.is_enabled()
                             );
                             info!("Sway reload done - Reapplying configurations from settings");
-                            let mut handlers_lock = utils::recover_lock(&handlers_sref);
-                            for handle in handlers_lock.iter_mut() {
-                                if let Err(e) = utils::retry_fallible(
-                                    || handle.apply_all_sync(),
+                            let handler_count = utils::recover_lock(&handlers_sref).len();
+                            for handler_index in 0..handler_count {
+                                let result = utils::retry_fallible(
+                                    || {
+                                        let mut handlers_lock = utils::recover_lock(&handlers_sref);
+                                        handlers_lock[handler_index].apply_all_sync()
+                                    },
                                     5,
                                     Duration::from_millis(500),
-                                ) {
+                                );
+                                if let Err(e) = result {
                                     warn!("Failed to re-apply input settings: {e}");
                                 }
                             }
