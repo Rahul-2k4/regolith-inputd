@@ -121,7 +121,11 @@ impl SettingsManager {
         for event in event_stream {
             match event {
                 Ok(Event::Input(event)) if ALLOW_SWAYINPUT_APPLY.is_enabled() => {
-                    if let Err(e) = utils::sync_input_settings(&mut handlers_sref, &event.input) {
+                    if let Err(e) = utils::retry_fallible(
+                        || utils::sync_input_settings(&mut handlers_sref, &event.input),
+                        5,
+                        Duration::from_millis(500),
+                    ) {
                         warn!("Failed to sync input settings: {e}");
                     }
                 }
@@ -151,7 +155,11 @@ impl SettingsManager {
                             info!("Sway reload done - Reapplying configurations from settings");
                             let mut handlers_lock = utils::recover_lock(&handlers_sref);
                             for handle in handlers_lock.iter_mut() {
-                                if let Err(e) = handle.apply_all_sync() {
+                                if let Err(e) = utils::retry_fallible(
+                                    || handle.apply_all_sync(),
+                                    5,
+                                    Duration::from_millis(500),
+                                ) {
                                     warn!("Failed to re-apply input settings: {e}");
                                 }
                             }

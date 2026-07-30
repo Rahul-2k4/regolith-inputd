@@ -20,10 +20,10 @@ pub fn recover_lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     }
 }
 
-pub fn sync_input_settings<'a>(
-    handlers_sref: &'a mut HandlerList,
+pub fn sync_input_settings(
+    handlers_sref: &mut HandlerList,
     input: &Input,
-) -> Result<(), Box<dyn Error + 'a>> {
+) -> Result<(), Box<dyn Error>> {
     let input_type = input.input_type.clone();
     let handler_index = match input_type.as_ref() {
         "pointer" => 0,
@@ -45,31 +45,46 @@ pub fn get_new_inputevent_stream() -> Fallible<EventStream> {
 
 pub fn retry_action<F, T, E>(action: F, max_retry: usize, duration_before_retry: Duration) -> T
 where
-    F: Fn() -> Result<T, E>,
+    F: FnMut() -> Result<T, E>,
     E: Display,
 {
-    let mut retries_left = max_retry;
-    loop {
-        match action() {
-            Ok(res) => break res,
-            Err(e) => {
-                if retries_left == 0 {
-                    error!("{e}");
-                    panic!();
-                }
-                warn!("{e}");
-                retries_left -= 1;
-                thread::sleep(duration_before_retry);
-            }
+    match retry_fallible(action, max_retry, duration_before_retry) {
+        Ok(result) => result,
+        Err(error) => {
+            error!("{error}");
+            panic!();
         }
     }
 }
 
+pub fn retry_fallible<F, T, E>(
+    mut action: F,
+    max_retry: usize,
+    duration_before_retry: Duration,
+) -> Result<T, E>
+where
+    F: FnMut() -> Result<T, E>,
+    E: Display,
+{
+    for attempt in 0..=max_retry {
+        match action() {
+            Ok(result) => return Ok(result),
+            Err(error) if attempt == max_retry => return Err(error),
+            Err(error) => {
+                warn!("{error}");
+                thread::sleep(duration_before_retry);
+            }
+        }
+    }
+    unreachable!()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::recover_lock;
+    use super::{recover_lock, retry_fallible};
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn recovers_inner_value_from_poisoned_lock() {
@@ -82,5 +97,39 @@ mod tests {
         .join();
 
         assert_eq!(*recover_lock(&mutex), 7);
+    }
+
+    #[test]
+    fn retries_after_failure() {
+        let mut attempts = 0;
+        let result = retry_fallible(
+            || {
+                attempts += 1;
+                if attempts == 3 {
+                    Ok(attempts)
+                } else {
+                    Err("temporary failure")
+                }
+            },
+            3,
+            Duration::ZERO,
+        );
+        assert_eq!(result, Ok(3));
+        assert_eq!(attempts, 3);
+    }
+
+    #[test]
+    fn returns_final_error_after_retries() {
+        let mut attempts = 0;
+        let result: Result<(), &str> = retry_fallible(
+            || {
+                attempts += 1;
+                Err("final failure")
+            },
+            2,
+            Duration::ZERO,
+        );
+        assert_eq!(result.unwrap_err(), "final failure");
+        assert_eq!(attempts, 3);
     }
 }
