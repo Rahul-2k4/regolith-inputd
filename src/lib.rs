@@ -76,6 +76,18 @@ pub struct SettingsManager {
     handlers: HandlerList,
 }
 
+fn get_inputevent_stream_with_retry<F, E>(
+    action: F,
+    max_retry: usize,
+    duration_before_retry: Duration,
+) -> Result<EventStream, E>
+where
+    F: FnMut() -> Result<EventStream, E>,
+    E: std::fmt::Display,
+{
+    utils::retry_action(action, max_retry, duration_before_retry)
+}
+
 #[derive(Debug, Deserialize, PartialEq, Eq)]
 enum SwayReloadStatus {
     #[serde(rename = "reload_pending")]
@@ -101,6 +113,11 @@ impl SettingsManager {
     }
 
     pub fn start_monitoring(&mut self) -> Result<(), Box<dyn Error + '_>> {
+        let event_stream = get_inputevent_stream_with_retry(
+            utils::get_new_inputevent_stream,
+            5,
+            Duration::from_millis(500),
+        )?;
         let mut handlers_lock = self.handlers.lock()?;
         for handle in handlers_lock.iter_mut() {
             handle.apply_all_sync()?;
@@ -108,22 +125,11 @@ impl SettingsManager {
         }
 
         let handlers_sref = self.handlers.clone();
-        thread::spawn(move || Self::monitor_swayinput_events(handlers_sref));
+        thread::spawn(move || Self::monitor_swayinput_events(event_stream, handlers_sref));
         Ok(())
     }
 
-    fn monitor_swayinput_events(mut handlers_sref: HandlerList) {
-        let event_stream = match utils::retry_action(
-            utils::get_new_inputevent_stream,
-            5,
-            Duration::from_millis(500),
-        ) {
-            Ok(event_stream) => event_stream,
-            Err(error) => {
-                warn!("Failed to start Sway IPC event monitoring: {error}");
-                return;
-            }
-        };
+    fn monitor_swayinput_events(event_stream: EventStream, mut handlers_sref: HandlerList) {
         for event in event_stream {
             match event {
                 Ok(Event::Input(event)) if ALLOW_SWAYINPUT_APPLY.is_enabled() => {
@@ -188,5 +194,27 @@ impl SettingsManager {
                 _ => continue,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::get_inputevent_stream_with_retry;
+    use std::time::Duration;
+
+    #[test]
+    fn initial_event_stream_failure_is_returned_after_retries() {
+        let mut attempts = 0;
+        let result = get_inputevent_stream_with_retry(
+            || {
+                attempts += 1;
+                Err::<swayipc::EventStream, _>("event subscription failed")
+            },
+            2,
+            Duration::ZERO,
+        );
+
+        assert!(result.is_err());
+        assert_eq!(attempts, 3);
     }
 }
