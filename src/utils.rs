@@ -47,7 +47,11 @@ pub fn get_new_inputevent_stream() -> Fallible<EventStream> {
     connection.subscribe(subs)
 }
 
-pub fn retry_action<F, T, E>(action: F, max_retry: usize, duration_before_retry: Duration) -> Result<T, E>
+pub fn retry_action<F, T, E>(
+    action: F,
+    max_retry: usize,
+    duration_before_retry: Duration,
+) -> Result<T, E>
 where
     F: FnMut() -> Result<T, E>,
     E: Display,
