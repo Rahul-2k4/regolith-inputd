@@ -294,7 +294,7 @@ impl CosmicTouchpadHandler {
                         CosmicScrollMethod::NoScroll => "none",
                         CosmicScrollMethod::TwoFinger => "two_finger",
                         CosmicScrollMethod::Edge => "edge",
-                        CosmicScrollMethod::OnButtonDown => "on_button",
+                        CosmicScrollMethod::OnButtonDown => "on_button_down",
                     }
                 ));
             }
@@ -318,7 +318,7 @@ impl CosmicTouchpadHandler {
                 }
             ));
             commands.push(format!(
-                "input type:touchpad tap_and_drag {}",
+                "input type:touchpad drag {}",
                 if tap_config.drag {
                     "enabled"
                 } else {
@@ -620,11 +620,11 @@ mod tests {
                 "input type:touchpad dwt disabled",
                 "input type:touchpad left_handed enabled",
                 "input type:touchpad middle_emulation disabled",
-                "input type:touchpad scroll_method on_button",
+                "input type:touchpad scroll_method on_button_down",
                 "input type:touchpad natural_scroll disabled",
                 "input type:touchpad scroll_factor 2",
                 "input type:touchpad tap disabled",
-                "input type:touchpad tap_and_drag enabled",
+                "input type:touchpad drag enabled",
                 "input type:touchpad drag_lock disabled",
             ]
         );
@@ -690,7 +690,7 @@ mod tests {
             super::CosmicTouchpadHandler::commands_for_config(config),
             vec![
                 "input type:touchpad tap enabled",
-                "input type:touchpad tap_and_drag disabled",
+                "input type:touchpad drag disabled",
                 "input type:touchpad drag_lock enabled"
             ]
         );
