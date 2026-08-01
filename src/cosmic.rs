@@ -13,9 +13,23 @@ const COSMIC_TOUCHPAD_CONFIG_KEY: &str = "input_touchpad";
 const COSMIC_TOUCHPAD_OVERRIDE_KEY: &str = "input_touchpad_override";
 const COSMIC_XKB_CONFIG_KEY: &str = "xkb_config";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WatchAction {
+    Ignore,
+    Apply,
+}
+
 fn has_key(keys: &[String], expected: &str) -> bool {
     keys.iter().any(|key| key == expected)
 }
+fn watch_action(keys: &[String], expected: &str) -> WatchAction {
+    if has_key(keys, expected) {
+        WatchAction::Apply
+    } else {
+        WatchAction::Ignore
+    }
+}
+
 fn touchpad_watch_triggers(keys: &[String]) -> bool {
     has_key(keys, COSMIC_TOUCHPAD_CONFIG_KEY) || has_key(keys, COSMIC_TOUCHPAD_OVERRIDE_KEY)
 }
@@ -159,39 +173,38 @@ impl CosmicMouseHandler {
         Ok(config.get(COSMIC_MOUSE_CONFIG_KEY).unwrap_or_default())
     }
 
-    fn set_bool(
-        sway_connection: &mut SwayConnection,
-        option: &str,
-        value: Option<bool>,
-    ) -> Result<(), Box<dyn Error>> {
-        if let Some(value) = value {
-            let sway_value = if value { "enabled" } else { "disabled" };
-            sway_connection.run_command(format!("input type:pointer {option} {sway_value}"))?;
+    fn commands_for_config(input_config: CosmicInputConfig) -> Vec<String> {
+        let mut commands = Vec::new();
+        if let Some(acceleration) = input_config.acceleration {
+            commands.push(format!(
+                "input type:pointer pointer_accel {}",
+                acceleration.speed
+            ));
         }
-        Ok(())
+        for (option, value) in [
+            ("left_handed", input_config.left_handed),
+            (
+                "natural_scroll",
+                input_config
+                    .scroll_config
+                    .and_then(|scroll| scroll.natural_scroll),
+            ),
+        ] {
+            if let Some(value) = value {
+                let sway_value = if value { "enabled" } else { "disabled" };
+                commands.push(format!("input type:pointer {option} {sway_value}"));
+            }
+        }
+        commands
     }
 
     fn apply_input_config(
         sway_connection: &mut SwayConnection,
         input_config: CosmicInputConfig,
     ) -> Result<(), Box<dyn Error>> {
-        if let Some(acceleration) = input_config.acceleration {
-            sway_connection.run_command(format!(
-                "input type:pointer pointer_accel {}",
-                acceleration.speed
-            ))?;
+        for command in Self::commands_for_config(input_config) {
+            sway_connection.run_command(command)?;
         }
-
-        Self::set_bool(sway_connection, "left_handed", input_config.left_handed)?;
-
-        if let Some(scroll_config) = input_config.scroll_config {
-            Self::set_bool(
-                sway_connection,
-                "natural_scroll",
-                scroll_config.natural_scroll,
-            )?;
-        }
-
         Ok(())
     }
 }
@@ -225,7 +238,7 @@ impl InputHandler for CosmicMouseHandler {
         };
 
         match config.watch(|config, keys| {
-            if !has_key(keys, COSMIC_MOUSE_CONFIG_KEY) {
+            if watch_action(keys, COSMIC_MOUSE_CONFIG_KEY) == WatchAction::Ignore {
                 return;
             }
 
@@ -585,7 +598,7 @@ impl InputHandler for CosmicInputHandler {
 
         let name = self.name;
         match config.watch(move |config, keys| {
-            if !has_key(keys, COSMIC_XKB_CONFIG_KEY) {
+            if watch_action(keys, COSMIC_XKB_CONFIG_KEY) == WatchAction::Ignore {
                 return;
             }
 
@@ -627,6 +640,53 @@ mod tests {
             &["other".into()],
             super::COSMIC_XKB_CONFIG_KEY
         ));
+    }
+
+    #[test]
+    fn watcher_routes_default_touchpad_and_xkb_keys() {
+        assert_eq!(
+            super::watch_action(&["input_default".into()], super::COSMIC_MOUSE_CONFIG_KEY),
+            super::WatchAction::Apply
+        );
+        assert_eq!(
+            super::watch_action(
+                &["input_touchpad".into()],
+                super::COSMIC_TOUCHPAD_CONFIG_KEY
+            ),
+            super::WatchAction::Apply
+        );
+        assert_eq!(
+            super::watch_action(&["xkb_config".into()], super::COSMIC_XKB_CONFIG_KEY),
+            super::WatchAction::Apply
+        );
+        assert_eq!(
+            super::watch_action(&["input_default".into()], super::COSMIC_XKB_CONFIG_KEY),
+            super::WatchAction::Ignore
+        );
+    }
+
+    #[test]
+    fn mouse_commands_emit_default_input_settings() {
+        let config = CosmicInputConfig {
+            acceleration: Some(super::CosmicAccelConfig {
+                profile: None,
+                speed: 0.25,
+            }),
+            left_handed: Some(true),
+            scroll_config: Some(super::CosmicScrollConfig {
+                natural_scroll: Some(false),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            super::CosmicMouseHandler::commands_for_config(config),
+            vec![
+                "input type:pointer pointer_accel 0.25",
+                "input type:pointer left_handed enabled",
+                "input type:pointer natural_scroll disabled",
+            ]
+        );
     }
 
     #[test]
