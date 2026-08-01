@@ -24,7 +24,7 @@ use std::sync::{
 };
 use std::thread;
 use std::time::Duration;
-use swayipc::{Event, TickEvent};
+use swayipc::{Event, EventStream, TickEvent};
 
 pub(crate) struct GateState {
     requested: AtomicBool,
