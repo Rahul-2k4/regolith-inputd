@@ -1,4 +1,4 @@
-use log::{error, info, warn};
+use log::{info, warn};
 use std::{
     error::Error,
     fmt::Display,
@@ -47,18 +47,12 @@ pub fn get_new_inputevent_stream() -> Fallible<EventStream> {
     connection.subscribe(subs)
 }
 
-pub fn retry_action<F, T, E>(action: F, max_retry: usize, duration_before_retry: Duration) -> T
+pub fn retry_action<F, T, E>(action: F, max_retry: usize, duration_before_retry: Duration) -> Result<T, E>
 where
     F: FnMut() -> Result<T, E>,
     E: Display,
 {
-    match retry_fallible(action, max_retry, duration_before_retry) {
-        Ok(result) => result,
-        Err(error) => {
-            error!("{error}");
-            panic!();
-        }
-    }
+    retry_fallible(action, max_retry, duration_before_retry)
 }
 
 pub fn retry_fallible<F, T, E>(
@@ -85,7 +79,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{is_supported_input_type, recover_lock, retry_fallible};
+    use super::{is_supported_input_type, recover_lock, retry_action, retry_fallible};
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
@@ -142,6 +136,22 @@ mod tests {
             Duration::ZERO,
         );
         assert_eq!(result.unwrap_err(), "final failure");
+        assert_eq!(attempts, 3);
+    }
+
+    #[test]
+    fn returns_final_error_without_panicking_after_retries() {
+        let mut attempts = 0;
+        let result = retry_action(
+            || {
+                attempts += 1;
+                Err::<(), _>("final failure")
+            },
+            2,
+            Duration::ZERO,
+        );
+
+        assert_eq!(result, Err("final failure"));
         assert_eq!(attempts, 3);
     }
 }

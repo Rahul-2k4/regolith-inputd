@@ -90,14 +90,14 @@ struct SwayReloadTick {
 }
 // Method Implementations
 impl SettingsManager {
-    pub fn new() -> SettingsManager {
+    pub fn new() -> Result<SettingsManager, Box<dyn Error>> {
         Self::new_for_backend(BackendKind::from_current_desktop())
     }
 
-    fn new_for_backend(backend: BackendKind) -> SettingsManager {
-        utils::retry_action(swayipc::Connection::new, 5, Duration::from_millis(500));
+    fn new_for_backend(backend: BackendKind) -> Result<SettingsManager, Box<dyn Error>> {
+        utils::retry_action(swayipc::Connection::new, 5, Duration::from_millis(500))?;
         let handlers = Arc::new(Mutex::new(backend.create_handlers()));
-        SettingsManager { handlers }
+        Ok(SettingsManager { handlers })
     }
 
     pub fn start_monitoring(&mut self) -> Result<(), Box<dyn Error + '_>> {
@@ -113,11 +113,17 @@ impl SettingsManager {
     }
 
     fn monitor_swayinput_events(mut handlers_sref: HandlerList) {
-        let event_stream = utils::retry_action(
+        let event_stream = match utils::retry_action(
             utils::get_new_inputevent_stream,
             5,
             Duration::from_millis(500),
-        );
+        ) {
+            Ok(event_stream) => event_stream,
+            Err(error) => {
+                warn!("Failed to start Sway IPC event monitoring: {error}");
+                return;
+            }
+        };
         for event in event_stream {
             match event {
                 Ok(Event::Input(event)) if ALLOW_SWAYINPUT_APPLY.is_enabled() => {
@@ -182,11 +188,5 @@ impl SettingsManager {
                 _ => continue,
             }
         }
-    }
-}
-
-impl Default for SettingsManager {
-    fn default() -> Self {
-        Self::new()
     }
 }

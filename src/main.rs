@@ -11,10 +11,16 @@ fn main() {
 
     #[cfg(feature = "gnome")]
     let app = Application::new(Some("org.regolith.inputd"), ApplicationFlags::IS_SERVICE);
-    let mut manager = SettingsManager::new();
+    let mut manager = match SettingsManager::new() {
+        Ok(manager) => manager,
+        Err(error) => {
+            error!("Failed to connect to Sway IPC during startup: {error}");
+            std::process::exit(1);
+        }
+    };
     if let Err(e) = manager.start_monitoring() {
         error!("{e}");
-        panic!();
+        std::process::exit(1);
     }
 
     #[cfg(feature = "gnome")]
