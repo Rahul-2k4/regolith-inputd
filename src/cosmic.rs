@@ -19,6 +19,9 @@ fn has_key(keys: &[String], expected: &str) -> bool {
 fn touchpad_watch_triggers(keys: &[String]) -> bool {
     has_key(keys, COSMIC_TOUCHPAD_CONFIG_KEY) || has_key(keys, COSMIC_TOUCHPAD_OVERRIDE_KEY)
 }
+fn touchpad_watch_applies(keys: &[String]) -> bool {
+    has_key(keys, COSMIC_TOUCHPAD_CONFIG_KEY)
+}
 
 #[derive(Debug, Default, Deserialize)]
 struct CosmicInputConfig {
@@ -386,14 +389,13 @@ impl InputHandler for CosmicTouchpadHandler {
         };
 
         match config.watch(|config, keys| {
-            let touchpad_changed = has_key(keys, COSMIC_TOUCHPAD_CONFIG_KEY);
             if !touchpad_watch_triggers(keys) {
                 return;
             }
 
             Self::log_touchpad_override(config);
 
-            if touchpad_changed {
+            if touchpad_watch_applies(keys) {
                 let result = SwayConnection::new()
                     .map_err(|err| -> Box<dyn Error> { Box::new(err) })
                     .and_then(|mut sway_connection| {
@@ -572,6 +574,60 @@ mod tests {
             "input_touchpad_override".into()
         ]));
         assert!(!super::touchpad_watch_triggers(&["other".into()]));
+    }
+
+    #[test]
+    fn touchpad_watcher_applies_only_when_input_config_changes() {
+        assert!(super::touchpad_watch_applies(&["input_touchpad".into()]));
+        assert!(!super::touchpad_watch_applies(&[
+            "input_touchpad_override".into()
+        ]));
+        assert!(super::touchpad_watch_applies(&[
+            "input_touchpad_override".into(),
+            "input_touchpad".into(),
+        ]));
+        assert!(!super::touchpad_watch_applies(&["other".into()]));
+    }
+
+    #[test]
+    fn touchpad_commands_map_all_supported_boolean_and_numeric_options() {
+        let config = CosmicInputConfig {
+            acceleration: Some(super::CosmicAccelConfig {
+                profile: Some(super::CosmicAccelProfile::Flat),
+                speed: 0.0,
+            }),
+            disable_while_typing: Some(false),
+            left_handed: Some(true),
+            middle_button_emulation: Some(false),
+            scroll_config: Some(super::CosmicScrollConfig {
+                method: Some(super::CosmicScrollMethod::OnButtonDown),
+                natural_scroll: Some(false),
+                scroll_factor: Some(2.0),
+            }),
+            tap_config: Some(super::CosmicTapConfig {
+                enabled: false,
+                drag: true,
+                drag_lock: false,
+            }),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            super::CosmicTouchpadHandler::commands_for_config(config),
+            vec![
+                "input type:touchpad pointer_accel 0",
+                "input type:touchpad accel_profile flat",
+                "input type:touchpad dwt disabled",
+                "input type:touchpad left_handed enabled",
+                "input type:touchpad middle_emulation disabled",
+                "input type:touchpad scroll_method on_button",
+                "input type:touchpad natural_scroll disabled",
+                "input type:touchpad scroll_factor 2",
+                "input type:touchpad tap disabled",
+                "input type:touchpad tap_and_drag enabled",
+                "input type:touchpad drag_lock disabled",
+            ]
+        );
     }
 
     #[test]
