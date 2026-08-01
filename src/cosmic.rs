@@ -2,7 +2,7 @@ use crate::traits::InputHandler;
 use cosmic_config::ConfigGet;
 use log::{debug, error};
 use notify::RecommendedWatcher;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::error::Error;
 use swayipc::{Connection as SwayConnection, Input};
 
@@ -63,7 +63,7 @@ fn touchpad_watch_action(keys: &[String]) -> TouchpadWatchAction {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 struct CosmicInputConfig {
     acceleration: Option<CosmicAccelConfig>,
     click_method: Option<CosmicClickMethod>,
@@ -74,32 +74,32 @@ struct CosmicInputConfig {
     tap_config: Option<CosmicTapConfig>,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 struct CosmicAccelConfig {
     profile: Option<CosmicAccelProfile>,
     speed: f64,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 struct CosmicScrollConfig {
     method: Option<CosmicScrollMethod>,
     natural_scroll: Option<bool>,
     scroll_factor: Option<f64>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 enum CosmicAccelProfile {
     Flat,
     Adaptive,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 enum CosmicClickMethod {
     ButtonAreas,
     Clickfinger,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 enum CosmicScrollMethod {
     NoScroll,
     TwoFinger,
@@ -107,20 +107,20 @@ enum CosmicScrollMethod {
     OnButtonDown,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 enum CosmicTouchpadOverride {
     None,
     ForceDisable,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct CosmicTapConfig {
     enabled: bool,
     drag: bool,
     drag_lock: bool,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct CosmicXkbConfig {
     layout: String,
     variant: String,
@@ -209,6 +209,32 @@ impl CosmicMouseHandler {
     }
 }
 
+fn apply_commands<F>(commands: Vec<String>, mut apply: F) -> Result<(), Box<dyn Error>>
+where
+    F: FnMut(String) -> Result<(), Box<dyn Error>>,
+{
+    for command in commands {
+        apply(command)?;
+    }
+    Ok(())
+}
+
+fn mouse_watch_callback<F>(
+    config: &cosmic_config::Config,
+    keys: &[String],
+    apply: F,
+) -> Result<(), Box<dyn Error>>
+where
+    F: FnMut(String) -> Result<(), Box<dyn Error>>,
+{
+    if watch_action(keys, COSMIC_MOUSE_CONFIG_KEY) == WatchAction::Ignore {
+        return Ok(());
+    }
+
+    let input_config = CosmicMouseHandler::input_config_from(config)?;
+    apply_commands(CosmicMouseHandler::commands_for_config(input_config), apply)
+}
+
 impl InputHandler for CosmicMouseHandler {
     fn sway_connection(&mut self) -> &mut SwayConnection {
         &mut self.sway_connection
@@ -245,8 +271,9 @@ impl InputHandler for CosmicMouseHandler {
             let result = SwayConnection::new()
                 .map_err(|err| -> Box<dyn Error> { Box::new(err) })
                 .and_then(|mut sway_connection| {
-                    Self::input_config_from(config).and_then(|input_config| {
-                        Self::apply_input_config(&mut sway_connection, input_config)
+                    mouse_watch_callback(config, keys, |command| {
+                        sway_connection.run_command(command)?;
+                        Ok(())
                     })
                 });
 
@@ -394,25 +421,32 @@ impl CosmicTouchpadHandler {
         commands.extend(Self::commands_for_override(override_));
         commands
     }
+}
 
-    fn apply_input_config(
-        sway_connection: &mut SwayConnection,
-        input_config: CosmicInputConfig,
-    ) -> Result<(), Box<dyn Error>> {
-        for command in Self::commands_for_config(input_config) {
-            sway_connection.run_command(command)?;
-        }
-        Ok(())
-    }
-    fn apply_touchpad_override(
-        sway_connection: &mut SwayConnection,
-        override_: Option<CosmicTouchpadOverride>,
-    ) -> Result<(), Box<dyn Error>> {
-        for command in Self::commands_for_override(override_) {
-            sway_connection.run_command(command)?;
-        }
-        Ok(())
-    }
+fn touchpad_watch_callback<F>(
+    config: &cosmic_config::Config,
+    keys: &[String],
+    apply: F,
+) -> Result<(), Box<dyn Error>>
+where
+    F: FnMut(String) -> Result<(), Box<dyn Error>>,
+{
+    let action = touchpad_watch_action(keys);
+    let commands = match action {
+        TouchpadWatchAction::Ignore => Vec::new(),
+        TouchpadWatchAction::ApplyConfig => CosmicTouchpadHandler::commands_for_config(
+            CosmicTouchpadHandler::input_config_from(config)?,
+        ),
+        TouchpadWatchAction::ApplyOverride => CosmicTouchpadHandler::commands_for_override(
+            CosmicTouchpadHandler::touchpad_override(config)?,
+        ),
+        TouchpadWatchAction::ApplyConfigAndOverride => CosmicTouchpadHandler::commands_for_apply(
+            CosmicTouchpadHandler::input_config_from(config)?,
+            CosmicTouchpadHandler::touchpad_override(config)?,
+        ),
+    };
+
+    apply_commands(commands, apply)
 }
 
 impl InputHandler for CosmicTouchpadHandler {
@@ -457,28 +491,14 @@ impl InputHandler for CosmicTouchpadHandler {
                 return;
             }
 
-            let result =
-                SwayConnection::new()
-                    .map_err(|err| -> Box<dyn Error> { Box::new(err) })
-                    .and_then(|mut sway_connection| match action {
-                        TouchpadWatchAction::Ignore => Ok(()),
-                        TouchpadWatchAction::ApplyConfig => Self::input_config_from(config)
-                            .and_then(|input_config| {
-                                Self::apply_input_config(&mut sway_connection, input_config)
-                            }),
-                        TouchpadWatchAction::ApplyOverride => Self::touchpad_override(config)
-                            .and_then(|override_| {
-                                Self::apply_touchpad_override(&mut sway_connection, override_)
-                            }),
-                        TouchpadWatchAction::ApplyConfigAndOverride => {
-                            Self::input_config_from(config).and_then(|input_config| {
-                                Self::apply_input_config(&mut sway_connection, input_config)
-                            })?;
-                            Self::touchpad_override(config).and_then(|override_| {
-                                Self::apply_touchpad_override(&mut sway_connection, override_)
-                            })
-                        }
-                    });
+            let result = SwayConnection::new()
+                .map_err(|err| -> Box<dyn Error> { Box::new(err) })
+                .and_then(|mut sway_connection| {
+                    touchpad_watch_callback(config, keys, |command| {
+                        sway_connection.run_command(command)?;
+                        Ok(())
+                    })
+                });
 
             if let Err(err) = result {
                 error!("Failed to apply COSMIC touchpad settings change: {err}");
@@ -556,6 +576,26 @@ impl CosmicInputHandler {
     }
 }
 
+fn xkb_watch_callback<F>(
+    config: &cosmic_config::Config,
+    keys: &[String],
+    name: &str,
+    apply: F,
+) -> Result<(), Box<dyn Error>>
+where
+    F: FnMut(String) -> Result<(), Box<dyn Error>>,
+{
+    if watch_action(keys, COSMIC_XKB_CONFIG_KEY) == WatchAction::Ignore {
+        return Ok(());
+    }
+
+    let xkb_config = CosmicInputHandler::xkb_config_from(config)?;
+    apply_commands(
+        CosmicInputHandler::commands_for_config(name, &xkb_config),
+        apply,
+    )
+}
+
 impl InputHandler for CosmicInputHandler {
     fn sway_connection(&mut self) -> &mut SwayConnection {
         &mut self.sway_connection
@@ -605,8 +645,9 @@ impl InputHandler for CosmicInputHandler {
             let result = SwayConnection::new()
                 .map_err(|err| -> Box<dyn Error> { Box::new(err) })
                 .and_then(|mut sway_connection| {
-                    Self::xkb_config_from(config).and_then(|xkb_config| {
-                        Self::apply_xkb_config(&mut sway_connection, name, xkb_config)
+                    xkb_watch_callback(config, keys, name, |command| {
+                        sway_connection.run_command(command)?;
+                        Ok(())
                     })
                 });
 
@@ -687,6 +728,195 @@ mod tests {
                 "input type:pointer natural_scroll disabled",
             ]
         );
+    }
+
+    fn test_config(name: &str) -> (cosmic_config::Config, std::path::PathBuf) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "regolith-inputd-cosmic-watch-{name}-{}-{}",
+            std::process::id(),
+            NEXT_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let config = cosmic_config::Config::with_custom_path(
+            super::COSMIC_COMP_CONFIG,
+            super::COSMIC_COMP_CONFIG_VERSION,
+            root.clone(),
+        )
+        .unwrap();
+        (config, root)
+    }
+
+    #[test]
+    fn config_watch_callback_routes_default_input_and_emits_mouse_commands() {
+        use cosmic_config::ConfigSet;
+        use std::sync::mpsc::channel;
+        use std::time::Duration;
+
+        let (config, root) = test_config("mouse");
+        let (sender, receiver) = channel();
+        let _watcher = config
+            .watch(move |config, keys| {
+                let mut commands = Vec::new();
+                let result = super::mouse_watch_callback(config, keys, |command| {
+                    commands.push(command);
+                    Ok(())
+                });
+                if result.is_ok() && !commands.is_empty() {
+                    sender.send(commands).unwrap();
+                }
+            })
+            .unwrap();
+
+        config
+            .set(
+                super::COSMIC_MOUSE_CONFIG_KEY,
+                CosmicInputConfig {
+                    acceleration: Some(super::CosmicAccelConfig {
+                        profile: None,
+                        speed: 0.25,
+                    }),
+                    left_handed: Some(true),
+                    scroll_config: Some(super::CosmicScrollConfig {
+                        natural_scroll: Some(false),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(
+            receiver.recv_timeout(Duration::from_secs(2)).unwrap(),
+            vec![
+                "input type:pointer pointer_accel 0.25",
+                "input type:pointer left_handed enabled",
+                "input type:pointer natural_scroll disabled",
+            ]
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn config_watch_callback_routes_touchpad_config_and_override_in_order() {
+        use cosmic_config::ConfigSet;
+        use std::sync::mpsc::channel;
+        use std::time::Duration;
+
+        let (config, root) = test_config("touchpad");
+        let (sender, receiver) = channel();
+        let _watcher = config
+            .watch(move |config, keys| {
+                let mut commands = Vec::new();
+                let result = super::touchpad_watch_callback(config, keys, |command| {
+                    commands.push(command);
+                    Ok(())
+                });
+                if result.is_ok() && !commands.is_empty() {
+                    sender.send(commands).unwrap();
+                }
+            })
+            .unwrap();
+
+        let transaction = config.transaction();
+        transaction
+            .set(
+                super::COSMIC_TOUCHPAD_CONFIG_KEY,
+                CosmicInputConfig {
+                    tap_config: Some(super::CosmicTapConfig {
+                        enabled: true,
+                        drag: false,
+                        drag_lock: true,
+                    }),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        transaction
+            .set(
+                super::COSMIC_TOUCHPAD_OVERRIDE_KEY,
+                super::CosmicTouchpadOverride::ForceDisable,
+            )
+            .unwrap();
+        transaction.commit().unwrap();
+
+        assert_eq!(
+            receiver.recv_timeout(Duration::from_secs(2)).unwrap(),
+            vec![
+                "input type:touchpad tap enabled",
+                "input type:touchpad drag disabled",
+                "input type:touchpad drag_lock enabled",
+            ]
+        );
+        assert_eq!(
+            receiver.recv_timeout(Duration::from_secs(2)).unwrap(),
+            vec!["input type:touchpad events disabled"]
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn config_watch_callback_routes_xkb_to_keyboard_and_input_sources() {
+        use cosmic_config::ConfigSet;
+        use std::sync::mpsc::channel;
+        use std::time::Duration;
+
+        let (config, root) = test_config("xkb");
+        let (sender, receiver) = channel();
+        let _watcher = config
+            .watch(move |config, keys| {
+                for name in ["keyboard", "input-sources"] {
+                    let mut commands = Vec::new();
+                    let result = super::xkb_watch_callback(config, keys, name, |command| {
+                        commands.push(command);
+                        Ok(())
+                    });
+                    if result.is_ok() && !commands.is_empty() {
+                        sender.send((name, commands)).unwrap();
+                    }
+                }
+            })
+            .unwrap();
+
+        config
+            .set(
+                super::COSMIC_XKB_CONFIG_KEY,
+                super::CosmicXkbConfig {
+                    layout: "us".into(),
+                    variant: "altgr-intl".into(),
+                    repeat_delay: 450,
+                    repeat_rate: 35,
+                },
+            )
+            .unwrap();
+
+        let mut results = [
+            receiver.recv_timeout(Duration::from_secs(2)).unwrap(),
+            receiver.recv_timeout(Duration::from_secs(2)).unwrap(),
+        ];
+        results.sort_by_key(|(name, _)| *name);
+        assert_eq!(
+            results,
+            [
+                (
+                    "input-sources",
+                    vec![
+                        String::from("input type:keyboard xkb_variant 'altgr-intl'"),
+                        String::from("input type:keyboard xkb_layout 'us'"),
+                    ],
+                ),
+                (
+                    "keyboard",
+                    vec![
+                        String::from("input type:keyboard repeat_delay 450"),
+                        String::from("input type:keyboard repeat_rate 35"),
+                    ],
+                ),
+            ]
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -846,7 +1076,7 @@ mod tests {
         );
         assert_eq!(
             CosmicInputHandler::commands_for_config("input-sources", &config),
-            vec!["input type:keyboard xkb_layout 'us'".to_string()]
+            vec![String::from("input type:keyboard xkb_layout 'us'").to_string()]
         );
     }
 
@@ -933,8 +1163,8 @@ mod tests {
         assert_eq!(
             CosmicInputHandler::commands_for_config("keyboard", &config),
             vec![
-                "input type:keyboard repeat_delay 450".to_string(),
-                "input type:keyboard repeat_rate 35".to_string(),
+                String::from("input type:keyboard repeat_delay 450").to_string(),
+                String::from("input type:keyboard repeat_rate 35").to_string(),
             ]
         );
     }
@@ -978,8 +1208,8 @@ mod tests {
         assert_eq!(
             CosmicInputHandler::commands_for_config("keyboard", &config),
             vec![
-                "input type:keyboard repeat_delay 450".to_string(),
-                "input type:keyboard repeat_rate 35".to_string(),
+                String::from("input type:keyboard repeat_delay 450").to_string(),
+                String::from("input type:keyboard repeat_rate 35").to_string(),
             ]
         );
     }
