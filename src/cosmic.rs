@@ -367,10 +367,9 @@ impl CosmicTouchpadHandler {
             Some(CosmicTouchpadOverride::ForceDisable) => {
                 vec!["input type:touchpad events disabled".to_string()]
             }
-            Some(CosmicTouchpadOverride::None) => {
+            Some(CosmicTouchpadOverride::None) | None => {
                 vec!["input type:touchpad events enabled".to_string()]
             }
-            None => Vec::new(),
         }
     }
 
@@ -703,7 +702,10 @@ mod tests {
             )),
             vec!["input type:touchpad events enabled"]
         );
-        assert!(super::CosmicTouchpadHandler::commands_for_override(None).is_empty());
+        assert_eq!(
+            super::CosmicTouchpadHandler::commands_for_override(None),
+            vec!["input type:touchpad events enabled"]
+        );
     }
 
     #[test]
