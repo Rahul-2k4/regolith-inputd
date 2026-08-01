@@ -1,14 +1,15 @@
 Source: regolith-inputd
-Section: unknown
+Section: admin
 Priority: optional
 Maintainer: Soumya Ranjan Patnaik <soumyaranjan1812@gmail.com>
 Build-Depends: cargo, ca-certificates, libglib2.0-dev, debhelper-compat (=12)
+Rules-Requires-Root: no
 Standards-Version: 4.5.0
-Homepage: <https://github.com/regolith-linux/regolith-inputd>
+Homepage: https://github.com/regolith-linux/regolith-inputd
 
 Package: regolith-inputd
 Architecture: any
 Multi-Arch: foreign
-Depends: ${misc:Depends}, ${shlibs:Depends} 
-Description: Synchronizes desktop input settings between supported desktop backends and Sway
-  This daemon keeps input settings aligned across desktop backends and Sway through D-Bus.
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Description: Synchronizes input settings between desktop backends and Sway
+ This daemon keeps input settings aligned through D-Bus.
