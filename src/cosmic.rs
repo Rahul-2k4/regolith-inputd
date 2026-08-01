@@ -22,6 +22,32 @@ fn touchpad_watch_triggers(keys: &[String]) -> bool {
 fn touchpad_watch_applies(keys: &[String]) -> bool {
     has_key(keys, COSMIC_TOUCHPAD_CONFIG_KEY)
 }
+fn touchpad_watch_applies_override(keys: &[String]) -> bool {
+    has_key(keys, COSMIC_TOUCHPAD_OVERRIDE_KEY)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TouchpadWatchAction {
+    Ignore,
+    ApplyConfig,
+    ApplyOverride,
+    ApplyConfigAndOverride,
+}
+
+fn touchpad_watch_action(keys: &[String]) -> TouchpadWatchAction {
+    if !touchpad_watch_triggers(keys) {
+        return TouchpadWatchAction::Ignore;
+    }
+    match (
+        touchpad_watch_applies(keys),
+        touchpad_watch_applies_override(keys),
+    ) {
+        (false, false) => TouchpadWatchAction::Ignore,
+        (true, false) => TouchpadWatchAction::ApplyConfig,
+        (false, true) => TouchpadWatchAction::ApplyOverride,
+        (true, true) => TouchpadWatchAction::ApplyConfigAndOverride,
+    }
+}
 
 #[derive(Debug, Default, Deserialize)]
 struct CosmicInputConfig {
@@ -336,6 +362,26 @@ impl CosmicTouchpadHandler {
         }
         commands
     }
+    fn commands_for_override(override_: Option<CosmicTouchpadOverride>) -> Vec<String> {
+        match override_ {
+            Some(CosmicTouchpadOverride::ForceDisable) => {
+                vec!["input type:touchpad events disabled".to_string()]
+            }
+            Some(CosmicTouchpadOverride::None) => {
+                vec!["input type:touchpad events enabled".to_string()]
+            }
+            None => Vec::new(),
+        }
+    }
+
+    fn commands_for_apply(
+        input_config: CosmicInputConfig,
+        override_: Option<CosmicTouchpadOverride>,
+    ) -> Vec<String> {
+        let mut commands = Self::commands_for_config(input_config);
+        commands.extend(Self::commands_for_override(override_));
+        commands
+    }
 
     fn apply_input_config(
         sway_connection: &mut SwayConnection,
@@ -346,15 +392,14 @@ impl CosmicTouchpadHandler {
         }
         Ok(())
     }
-
-    fn log_touchpad_override(config: &cosmic_config::Config) {
-        match Self::touchpad_override(config) {
-            Ok(Some(CosmicTouchpadOverride::ForceDisable)) => debug!(
-                "COSMIC touchpad force-disable is set, but Sway has no type:touchpad enable/disable command"
-            ),
-            Ok(Some(CosmicTouchpadOverride::None)) | Ok(None) => {}
-            Err(err) => error!("Failed to read COSMIC touchpad override: {err}"),
+    fn apply_touchpad_override(
+        sway_connection: &mut SwayConnection,
+        override_: Option<CosmicTouchpadOverride>,
+    ) -> Result<(), Box<dyn Error>> {
+        for command in Self::commands_for_override(override_) {
+            sway_connection.run_command(command)?;
         }
+        Ok(())
     }
 }
 
@@ -369,8 +414,14 @@ impl InputHandler for CosmicTouchpadHandler {
 
     fn apply_all(&mut self) -> Result<(), Box<dyn Error>> {
         let config = cosmic_config::Config::new(COSMIC_COMP_CONFIG, COSMIC_COMP_CONFIG_VERSION)?;
-        Self::log_touchpad_override(&config);
-        Self::apply_input_config(&mut self.sway_connection, Self::input_config_from(&config)?)
+        let commands = Self::commands_for_apply(
+            Self::input_config_from(&config)?,
+            Self::touchpad_override(&config)?,
+        );
+        for command in commands {
+            self.sway_connection.run_command(command)?;
+        }
+        Ok(())
     }
 
     fn sync_from_sway_input(&mut self, input: &Input) -> Result<(), Box<dyn Error>> {
@@ -389,24 +440,36 @@ impl InputHandler for CosmicTouchpadHandler {
         };
 
         match config.watch(|config, keys| {
-            if !touchpad_watch_triggers(keys) {
+            let action = touchpad_watch_action(keys);
+            if action == TouchpadWatchAction::Ignore {
                 return;
             }
 
-            Self::log_touchpad_override(config);
-
-            if touchpad_watch_applies(keys) {
-                let result = SwayConnection::new()
+            let result =
+                SwayConnection::new()
                     .map_err(|err| -> Box<dyn Error> { Box::new(err) })
-                    .and_then(|mut sway_connection| {
-                        Self::input_config_from(config).and_then(|input_config| {
-                            Self::apply_input_config(&mut sway_connection, input_config)
-                        })
+                    .and_then(|mut sway_connection| match action {
+                        TouchpadWatchAction::Ignore => Ok(()),
+                        TouchpadWatchAction::ApplyConfig => Self::input_config_from(config)
+                            .and_then(|input_config| {
+                                Self::apply_input_config(&mut sway_connection, input_config)
+                            }),
+                        TouchpadWatchAction::ApplyOverride => Self::touchpad_override(config)
+                            .and_then(|override_| {
+                                Self::apply_touchpad_override(&mut sway_connection, override_)
+                            }),
+                        TouchpadWatchAction::ApplyConfigAndOverride => {
+                            Self::input_config_from(config).and_then(|input_config| {
+                                Self::apply_input_config(&mut sway_connection, input_config)
+                            })?;
+                            Self::touchpad_override(config).and_then(|override_| {
+                                Self::apply_touchpad_override(&mut sway_connection, override_)
+                            })
+                        }
                     });
 
-                if let Err(err) = result {
-                    error!("Failed to apply COSMIC touchpad settings change: {err}");
-                }
+            if let Err(err) = result {
+                error!("Failed to apply COSMIC touchpad settings change: {err}");
             }
         }) {
             Ok(watcher) => self._watcher = Some(watcher),
@@ -587,6 +650,83 @@ mod tests {
             "input_touchpad".into(),
         ]));
         assert!(!super::touchpad_watch_applies(&["other".into()]));
+    }
+
+    #[test]
+    fn touchpad_watcher_decides_config_and_override_side_effects() {
+        assert_eq!(
+            super::touchpad_watch_action(&["input_touchpad".into()]),
+            super::TouchpadWatchAction::ApplyConfig
+        );
+        assert_eq!(
+            super::touchpad_watch_action(&["input_touchpad_override".into()]),
+            super::TouchpadWatchAction::ApplyOverride
+        );
+        assert_eq!(
+            super::touchpad_watch_action(&[
+                "input_touchpad_override".into(),
+                "input_touchpad".into(),
+            ]),
+            super::TouchpadWatchAction::ApplyConfigAndOverride
+        );
+        assert_eq!(
+            super::touchpad_watch_action(&["other".into()]),
+            super::TouchpadWatchAction::Ignore
+        );
+    }
+
+    #[test]
+    fn touchpad_watcher_applies_override_changes_without_config_changes() {
+        assert!(super::touchpad_watch_applies_override(&[
+            "input_touchpad_override".into()
+        ]));
+        assert!(super::touchpad_watch_applies_override(&[
+            "input_touchpad_override".into(),
+            "input_touchpad".into(),
+        ]));
+        assert!(!super::touchpad_watch_applies_override(&[
+            "input_touchpad".into()
+        ]));
+    }
+
+    #[test]
+    fn touchpad_override_commands_map_force_disable_and_clear() {
+        assert_eq!(
+            super::CosmicTouchpadHandler::commands_for_override(Some(
+                super::CosmicTouchpadOverride::ForceDisable
+            )),
+            vec!["input type:touchpad events disabled"]
+        );
+        assert_eq!(
+            super::CosmicTouchpadHandler::commands_for_override(Some(
+                super::CosmicTouchpadOverride::None
+            )),
+            vec!["input type:touchpad events enabled"]
+        );
+        assert!(super::CosmicTouchpadHandler::commands_for_override(None).is_empty());
+    }
+
+    #[test]
+    fn touchpad_full_apply_orders_override_after_normal_config() {
+        assert_eq!(
+            super::CosmicTouchpadHandler::commands_for_apply(
+                CosmicInputConfig {
+                    tap_config: Some(super::CosmicTapConfig {
+                        enabled: true,
+                        drag: false,
+                        drag_lock: true,
+                    }),
+                    ..Default::default()
+                },
+                Some(super::CosmicTouchpadOverride::ForceDisable),
+            ),
+            vec![
+                "input type:touchpad tap enabled",
+                "input type:touchpad drag disabled",
+                "input type:touchpad drag_lock enabled",
+                "input type:touchpad events disabled",
+            ]
+        );
     }
 
     #[test]
