@@ -1,3 +1,11 @@
+regolith-inputd (0.4.1-1) jammy; urgency=medium
+
+  * Fix Debian package section and description metadata.
+  * Remove unnecessary Homepage markup.
+  * Declare that the package can be built without root privileges.
+
+ -- Regolith Linux <regolith.linux@gmail.com>  Sat, 01 Aug 2026 00:00:00 +0000
+
 regolith-inputd (0.4.1) jammy; urgency=medium
 
   [ Khosrow Moossavi ]
@@ -67,6 +75,6 @@ regolith-inputd (0.2.0) focal; urgency=medium
 
 regolith-inputd (0.1) jammy; urgency=medium
 
-  * Initial release. 
+  * Initial release.
 
  -- Soumya Ranjan patnaik <soumyaranjan1812@gmail.com>  Fri, 18 Nov 2022 21:46:01 +0530
