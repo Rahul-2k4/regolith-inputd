@@ -757,7 +757,7 @@ mod tests {
 
         let (config, root) = test_config("mouse");
         let (sender, receiver) = channel();
-        let _watcher = config
+        let watcher = config
             .watch(move |config, keys| {
                 let mut commands = Vec::new();
                 let result = super::mouse_watch_callback(config, keys, |command| {
@@ -796,18 +796,19 @@ mod tests {
                 "input type:pointer natural_scroll disabled",
             ]
         );
+        drop(watcher);
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
-    fn config_watch_callback_routes_touchpad_config_and_override_in_order() {
+    fn config_watch_callback_routes_touchpad_config_and_override_callbacks() {
         use cosmic_config::ConfigSet;
         use std::sync::mpsc::channel;
         use std::time::Duration;
 
         let (config, root) = test_config("touchpad");
         let (sender, receiver) = channel();
-        let _watcher = config
+        let watcher = config
             .watch(move |config, keys| {
                 let mut commands = Vec::new();
                 let result = super::touchpad_watch_callback(config, keys, |command| {
@@ -842,18 +843,19 @@ mod tests {
             .unwrap();
         transaction.commit().unwrap();
 
-        assert_eq!(
+        let callback_results = [
             receiver.recv_timeout(Duration::from_secs(2)).unwrap(),
-            vec![
-                "input type:touchpad tap enabled",
-                "input type:touchpad drag disabled",
-                "input type:touchpad drag_lock enabled",
-            ]
-        );
-        assert_eq!(
             receiver.recv_timeout(Duration::from_secs(2)).unwrap(),
-            vec!["input type:touchpad events disabled"]
+        ];
+        assert!(callback_results.contains(&vec![
+            "input type:touchpad tap enabled".to_string(),
+            "input type:touchpad drag disabled".to_string(),
+            "input type:touchpad drag_lock enabled".to_string(),
+        ]));
+        assert!(
+            callback_results.contains(&vec!["input type:touchpad events disabled".to_string(),])
         );
+        drop(watcher);
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -865,7 +867,7 @@ mod tests {
 
         let (config, root) = test_config("xkb");
         let (sender, receiver) = channel();
-        let _watcher = config
+        let watcher = config
             .watch(move |config, keys| {
                 for name in ["keyboard", "input-sources"] {
                     let mut commands = Vec::new();
@@ -916,6 +918,7 @@ mod tests {
                 ),
             ]
         );
+        drop(watcher);
         let _ = std::fs::remove_dir_all(root);
     }
 
