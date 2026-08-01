@@ -12,4 +12,5 @@ Architecture: any
 Multi-Arch: foreign
 Depends: ${misc:Depends}, ${shlibs:Depends}
 Description: Synchronizes input settings between desktop backends and Sway
- This daemon keeps input settings aligned through D-Bus.
+ This daemon keeps input settings aligned across supported desktop backends
+ and Sway through D-Bus.
