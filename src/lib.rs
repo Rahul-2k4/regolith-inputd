@@ -206,7 +206,7 @@ impl SettingsManager {
 
 #[cfg(test)]
 mod tests {
-    use super::get_inputevent_stream_with_retry;
+    use super::{get_inputevent_stream_with_retry, EVENT_STREAM_STARTUP_MAX_RETRIES};
     use std::time::Duration;
 
     #[test]
