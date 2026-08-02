@@ -71,7 +71,7 @@ static ALLOW_SETTINGS_APPLY: GateState = GateState::new(true);
 type SharedRef<T> = Arc<Mutex<T>>;
 type HandlerList = SharedRef<HandlerSet>;
 
-pub(crate) const STARTUP_MAX_RETRIES: usize = 20;
+pub(crate) const STARTUP_MAX_RETRIES: usize = 60;
 pub(crate) const STARTUP_RETRY_DELAY: Duration = Duration::from_millis(500);
 
 // Structs
@@ -206,8 +206,14 @@ impl SettingsManager {
 
 #[cfg(test)]
 mod tests {
-    use super::{get_inputevent_stream_with_retry, STARTUP_MAX_RETRIES};
+    use super::{get_inputevent_stream_with_retry, STARTUP_MAX_RETRIES, STARTUP_RETRY_DELAY};
     use std::time::Duration;
+
+    #[test]
+    fn startup_retry_policy_has_sixty_retries_at_half_second_intervals() {
+        assert_eq!(STARTUP_MAX_RETRIES, 60);
+        assert_eq!(STARTUP_RETRY_DELAY, Duration::from_millis(500));
+    }
 
     #[test]
     fn initial_event_stream_failure_is_returned_after_retries() {
@@ -222,6 +228,10 @@ mod tests {
         );
 
         assert!(result.is_err());
+        assert_eq!(
+            result.err().map(|error| error.to_string()),
+            Some("event subscription failed".to_string())
+        );
         assert_eq!(attempts, STARTUP_MAX_RETRIES + 1);
     }
 }

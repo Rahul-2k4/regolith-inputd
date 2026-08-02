@@ -201,6 +201,7 @@ mod tests {
         );
 
         assert_eq!(result, Err("Sway IPC unavailable"));
+        assert_eq!(attempts, 61);
         assert_eq!(attempts, STARTUP_MAX_RETRIES + 1);
     }
 
