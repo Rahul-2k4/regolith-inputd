@@ -13,14 +13,13 @@ pub struct TouchpadHandler {
     sway_connection: SwayConnection,
 }
 impl TouchpadHandler {
-    pub fn new() -> TouchpadHandler {
+    pub fn new() -> Result<TouchpadHandler, Box<dyn Error>> {
         let settings = Settings::new("org.gnome.desktop.peripherals.touchpad");
-        let connection =
-            utils::new_sway_connection().expect("Sway IPC unavailable after startup retries");
-        TouchpadHandler {
+        let connection = utils::new_sway_connection()?;
+        Ok(TouchpadHandler {
             settings,
             sway_connection: connection,
-        }
+        })
     }
     fn apply_tap(&mut self) -> Result<(), Box<dyn Error>> {
         let tap_enabled: &str = self

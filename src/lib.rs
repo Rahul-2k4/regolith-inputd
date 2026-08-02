@@ -12,7 +12,7 @@ mod touchpad;
 mod traits;
 mod utils;
 
-use backend::BackendKind;
+use backend::{create_handlers_with_retry, BackendKind};
 use backend::HandlerSet;
 use log::info;
 use log::{debug, warn};
@@ -107,8 +107,11 @@ impl SettingsManager {
     }
 
     fn new_for_backend(backend: BackendKind) -> Result<SettingsManager, Box<dyn Error>> {
-        utils::retry_action(swayipc::Connection::new, 5, Duration::from_millis(500))?;
-        let handlers = Arc::new(Mutex::new(backend.create_handlers()));
+        let handlers = Arc::new(Mutex::new(create_handlers_with_retry(
+            || backend.create_handlers(),
+            5,
+            Duration::from_millis(500),
+        )?));
         Ok(SettingsManager { handlers })
     }
 

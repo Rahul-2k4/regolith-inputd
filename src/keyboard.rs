@@ -10,14 +10,13 @@ pub struct KeyboardHandler {
     sway_connection: SwayConnection,
 }
 impl KeyboardHandler {
-    pub fn new() -> KeyboardHandler {
+    pub fn new() -> Result<KeyboardHandler, Box<dyn Error>> {
         let settings = Settings::new("org.gnome.desktop.peripherals.keyboard");
-        let sway_connection =
-            utils::new_sway_connection().expect("Sway IPC unavailable after startup retries");
-        KeyboardHandler {
+        let sway_connection = utils::new_sway_connection()?;
+        Ok(KeyboardHandler {
             settings,
             sway_connection,
-        }
+        })
     }
     fn apply_repeat_interval(&mut self) -> Result<(), Box<dyn Error>> {
         let interval: u32 = self.settings().get("repeat-interval");

@@ -156,12 +156,11 @@ pub struct CosmicMouseHandler {
 }
 
 impl CosmicMouseHandler {
-    pub fn new() -> Self {
-        Self {
-            sway_connection: utils::new_sway_connection()
-                .expect("Sway IPC unavailable after startup retries"),
+    pub fn new() -> Result<Self, Box<dyn Error>> {
+        Ok(Self {
+            sway_connection: utils::new_sway_connection()?,
             _watcher: None,
-        }
+        })
     }
 
     fn input_config() -> Result<CosmicInputConfig, Box<dyn Error>> {
@@ -297,12 +296,11 @@ pub struct CosmicTouchpadHandler {
 }
 
 impl CosmicTouchpadHandler {
-    pub fn new() -> Self {
-        Self {
-            sway_connection: utils::new_sway_connection()
-                .expect("Sway IPC unavailable after startup retries"),
+    pub fn new() -> Result<Self, Box<dyn Error>> {
+        Ok(Self {
+            sway_connection: utils::new_sway_connection()?,
             _watcher: None,
-        }
+        })
     }
 
     fn input_config_from(
@@ -522,13 +520,12 @@ pub struct CosmicInputHandler {
 }
 
 impl CosmicInputHandler {
-    pub fn new(name: &'static str) -> Self {
-        Self {
+    pub fn new(name: &'static str) -> Result<Self, Box<dyn Error>> {
+        Ok(Self {
             name,
-            sway_connection: utils::new_sway_connection()
-                .expect("Sway IPC unavailable after startup retries"),
+            sway_connection: utils::new_sway_connection()?,
             _watcher: None,
-        }
+        })
     }
 
     fn xkb_config() -> Result<CosmicXkbConfig, Box<dyn Error>> {

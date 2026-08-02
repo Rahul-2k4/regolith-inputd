@@ -12,14 +12,13 @@ pub struct MouseHandler {
 }
 
 impl MouseHandler {
-    pub fn new() -> MouseHandler {
+    pub fn new() -> Result<MouseHandler, Box<dyn Error>> {
         let settings = Settings::new("org.gnome.desktop.peripherals.mouse");
-        let sway_connection =
-            utils::new_sway_connection().expect("Sway IPC unavailable after startup retries");
-        MouseHandler {
+        let sway_connection = utils::new_sway_connection()?;
+        Ok(MouseHandler {
             settings,
             sway_connection,
-        }
+        })
     }
 }
 

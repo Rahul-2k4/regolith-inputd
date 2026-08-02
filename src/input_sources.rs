@@ -10,14 +10,13 @@ pub struct InputSourcesHandler {
     sway_connection: SwayConnection,
 }
 impl InputSourcesHandler {
-    pub fn new() -> InputSourcesHandler {
+    pub fn new() -> Result<InputSourcesHandler, Box<dyn Error>> {
         let settings = Settings::new("org.gnome.desktop.input-sources");
-        let sway_connection =
-            utils::new_sway_connection().expect("Sway IPC unavailable after startup retries");
-        InputSourcesHandler {
+        let sway_connection = utils::new_sway_connection()?;
+        Ok(InputSourcesHandler {
             settings,
             sway_connection,
-        }
+        })
     }
     fn apply_input_sources(&mut self) -> Result<(), Box<dyn Error>> {
         let sources: Vec<(String, String)> = self.settings().get("sources");

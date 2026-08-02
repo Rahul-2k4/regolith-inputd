@@ -48,7 +48,7 @@ pub fn get_new_inputevent_stream() -> Fallible<EventStream> {
 }
 
 pub fn new_sway_connection() -> Fallible<SwayConnection> {
-    retry_action(SwayConnection::new, 5, Duration::from_millis(500))
+    SwayConnection::new()
 }
 
 pub fn retry_action<F, T, E>(
