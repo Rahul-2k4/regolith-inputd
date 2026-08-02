@@ -107,6 +107,7 @@ impl SettingsManager {
     }
 
     fn new_for_backend(backend: BackendKind) -> Result<SettingsManager, Box<dyn Error>> {
+        backend.validate_feature()?;
         let handlers = Arc::new(Mutex::new(create_handlers_with_retry(
             || backend.create_handlers(),
             5,

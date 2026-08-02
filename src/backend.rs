@@ -44,6 +44,13 @@ impl BackendKind {
             Self::Cosmic => create_cosmic_handlers(),
         }
     }
+
+    pub fn validate_feature(self) -> Result<(), Box<dyn Error>> {
+        match self {
+            Self::Gnome => validate_gnome_feature(),
+            Self::Cosmic => validate_cosmic_feature(),
+        }
+    }
 }
 
 pub fn create_handlers_with_retry<F, T, E>(
@@ -76,6 +83,19 @@ fn create_gnome_handlers() -> Result<HandlerSet, Box<dyn Error>> {
     )
 }
 
+#[cfg(feature = "gnome")]
+fn validate_gnome_feature() -> Result<(), Box<dyn Error>> {
+    Ok(())
+}
+
+#[cfg(not(feature = "gnome"))]
+fn validate_gnome_feature() -> Result<(), Box<dyn Error>> {
+    Err(
+        "GNOME input backend selected, but regolith-inputd was built without the gnome feature"
+            .into(),
+    )
+}
+
 #[cfg(feature = "cosmic")]
 fn create_cosmic_handlers() -> Result<HandlerSet, Box<dyn Error>> {
     Ok([
@@ -88,6 +108,16 @@ fn create_cosmic_handlers() -> Result<HandlerSet, Box<dyn Error>> {
 
 #[cfg(not(feature = "cosmic"))]
 fn create_cosmic_handlers() -> Result<HandlerSet, Box<dyn Error>> {
+    Err("COSMIC desktop detected, but regolith-inputd was built without the cosmic feature".into())
+}
+
+#[cfg(feature = "cosmic")]
+fn validate_cosmic_feature() -> Result<(), Box<dyn Error>> {
+    Ok(())
+}
+
+#[cfg(not(feature = "cosmic"))]
+fn validate_cosmic_feature() -> Result<(), Box<dyn Error>> {
     Err("COSMIC desktop detected, but regolith-inputd was built without the cosmic feature".into())
 }
 
@@ -171,5 +201,26 @@ mod tests {
 
         assert_eq!(result, Err("Sway IPC unavailable"));
         assert_eq!(attempts, 3);
+    }
+
+    #[test]
+    fn feature_validation_matches_compiled_backend_features() {
+        let gnome_validation = BackendKind::Gnome.validate_feature();
+        let cosmic_validation = BackendKind::Cosmic.validate_feature();
+
+        #[cfg(feature = "gnome")]
+        assert!(gnome_validation.is_ok());
+        #[cfg(not(feature = "gnome"))]
+        assert_eq!(
+            gnome_validation.unwrap_err().to_string(),
+            "GNOME input backend selected, but regolith-inputd was built without the gnome feature"
+        );
+        #[cfg(feature = "cosmic")]
+        assert!(cosmic_validation.is_ok());
+        #[cfg(not(feature = "cosmic"))]
+        assert_eq!(
+            cosmic_validation.unwrap_err().to_string(),
+            "COSMIC desktop detected, but regolith-inputd was built without the cosmic feature"
+        );
     }
 }
