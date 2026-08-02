@@ -124,6 +124,7 @@ fn validate_cosmic_feature() -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::{create_handlers_with_retry, BackendKind};
+    use crate::STARTUP_MAX_RETRIES;
     use std::time::Duration;
 
     #[test]
@@ -179,7 +180,7 @@ mod tests {
                     Err("Sway IPC unavailable")
                 }
             },
-            2,
+            STARTUP_MAX_RETRIES,
             Duration::ZERO,
         );
 
@@ -195,12 +196,12 @@ mod tests {
                 attempts += 1;
                 Err::<(), _>("Sway IPC unavailable")
             },
-            2,
+            STARTUP_MAX_RETRIES,
             Duration::ZERO,
         );
 
         assert_eq!(result, Err("Sway IPC unavailable"));
-        assert_eq!(attempts, 3);
+        assert_eq!(attempts, STARTUP_MAX_RETRIES + 1);
     }
 
     #[test]

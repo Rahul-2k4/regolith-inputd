@@ -71,8 +71,8 @@ static ALLOW_SETTINGS_APPLY: GateState = GateState::new(true);
 type SharedRef<T> = Arc<Mutex<T>>;
 type HandlerList = SharedRef<HandlerSet>;
 
-const EVENT_STREAM_STARTUP_MAX_RETRIES: usize = 20;
-const EVENT_STREAM_STARTUP_RETRY_DELAY: Duration = Duration::from_millis(500);
+pub(crate) const STARTUP_MAX_RETRIES: usize = 20;
+pub(crate) const STARTUP_RETRY_DELAY: Duration = Duration::from_millis(500);
 
 // Structs
 pub struct SettingsManager {
@@ -113,8 +113,8 @@ impl SettingsManager {
         backend.validate_feature()?;
         let handlers = Arc::new(Mutex::new(create_handlers_with_retry(
             || backend.create_handlers(),
-            5,
-            Duration::from_millis(500),
+            STARTUP_MAX_RETRIES,
+            STARTUP_RETRY_DELAY,
         )?));
         Ok(SettingsManager { handlers })
     }
@@ -122,8 +122,8 @@ impl SettingsManager {
     pub fn start_monitoring(&mut self) -> Result<(), Box<dyn Error + '_>> {
         let event_stream = get_inputevent_stream_with_retry(
             utils::get_new_inputevent_stream,
-            EVENT_STREAM_STARTUP_MAX_RETRIES,
-            EVENT_STREAM_STARTUP_RETRY_DELAY,
+            STARTUP_MAX_RETRIES,
+            STARTUP_RETRY_DELAY,
         )?;
         let mut handlers_lock = self.handlers.lock()?;
         for handle in handlers_lock.iter_mut() {
@@ -206,7 +206,7 @@ impl SettingsManager {
 
 #[cfg(test)]
 mod tests {
-    use super::{get_inputevent_stream_with_retry, EVENT_STREAM_STARTUP_MAX_RETRIES};
+    use super::{get_inputevent_stream_with_retry, STARTUP_MAX_RETRIES};
     use std::time::Duration;
 
     #[test]
@@ -217,11 +217,11 @@ mod tests {
                 attempts += 1;
                 Err::<swayipc::EventStream, _>("event subscription failed")
             },
-            EVENT_STREAM_STARTUP_MAX_RETRIES,
+            STARTUP_MAX_RETRIES,
             Duration::ZERO,
         );
 
         assert!(result.is_err());
-        assert_eq!(attempts, EVENT_STREAM_STARTUP_MAX_RETRIES + 1);
+        assert_eq!(attempts, STARTUP_MAX_RETRIES + 1);
     }
 }
