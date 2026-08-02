@@ -12,8 +12,8 @@ mod touchpad;
 mod traits;
 mod utils;
 
-use backend::{create_handlers_with_retry, BackendKind};
 use backend::HandlerSet;
+use backend::{create_handlers_with_retry, BackendKind};
 use log::info;
 use log::{debug, warn};
 use serde::Deserialize;

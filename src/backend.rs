@@ -70,7 +70,10 @@ fn create_gnome_handlers() -> Result<HandlerSet, Box<dyn Error>> {
 
 #[cfg(not(feature = "gnome"))]
 fn create_gnome_handlers() -> Result<HandlerSet, Box<dyn Error>> {
-    Err("GNOME input backend selected, but regolith-inputd was built without the gnome feature".into())
+    Err(
+        "GNOME input backend selected, but regolith-inputd was built without the gnome feature"
+            .into(),
+    )
 }
 
 #[cfg(feature = "cosmic")]
