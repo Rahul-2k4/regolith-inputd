@@ -1,4 +1,5 @@
 use crate::traits::InputHandler;
+use crate::utils;
 use cosmic_config::ConfigGet;
 use log::{debug, error};
 use notify::RecommendedWatcher;
@@ -157,7 +158,8 @@ pub struct CosmicMouseHandler {
 impl CosmicMouseHandler {
     pub fn new() -> Self {
         Self {
-            sway_connection: SwayConnection::new().unwrap(),
+            sway_connection: utils::new_sway_connection()
+                .expect("Sway IPC unavailable after startup retries"),
             _watcher: None,
         }
     }
@@ -297,7 +299,8 @@ pub struct CosmicTouchpadHandler {
 impl CosmicTouchpadHandler {
     pub fn new() -> Self {
         Self {
-            sway_connection: SwayConnection::new().unwrap(),
+            sway_connection: utils::new_sway_connection()
+                .expect("Sway IPC unavailable after startup retries"),
             _watcher: None,
         }
     }
@@ -522,7 +525,8 @@ impl CosmicInputHandler {
     pub fn new(name: &'static str) -> Self {
         Self {
             name,
-            sway_connection: SwayConnection::new().unwrap(),
+            sway_connection: utils::new_sway_connection()
+                .expect("Sway IPC unavailable after startup retries"),
             _watcher: None,
         }
     }

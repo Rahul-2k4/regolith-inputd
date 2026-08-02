@@ -1,4 +1,5 @@
 use crate::traits::{GnomeInputHandler, InputHandler};
+use crate::utils;
 use gio::{prelude::SettingsExtManual, Settings};
 use log::info;
 use std::error::Error;
@@ -11,7 +12,8 @@ pub struct KeyboardHandler {
 impl KeyboardHandler {
     pub fn new() -> KeyboardHandler {
         let settings = Settings::new("org.gnome.desktop.peripherals.keyboard");
-        let sway_connection = SwayConnection::new().unwrap();
+        let sway_connection =
+            utils::new_sway_connection().expect("Sway IPC unavailable after startup retries");
         KeyboardHandler {
             settings,
             sway_connection,

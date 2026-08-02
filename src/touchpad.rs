@@ -1,6 +1,7 @@
 use crate::traits::{
     GnomeInputHandler, InputHandler, PointerMethods, PrimitiveToSwayType, SwayTypeToPrimitive,
 };
+use crate::utils;
 use gio::{prelude::SettingsExtManual, traits::SettingsExt, Settings};
 use log::info;
 
@@ -14,7 +15,8 @@ pub struct TouchpadHandler {
 impl TouchpadHandler {
     pub fn new() -> TouchpadHandler {
         let settings = Settings::new("org.gnome.desktop.peripherals.touchpad");
-        let connection = SwayConnection::new().unwrap();
+        let connection =
+            utils::new_sway_connection().expect("Sway IPC unavailable after startup retries");
         TouchpadHandler {
             settings,
             sway_connection: connection,

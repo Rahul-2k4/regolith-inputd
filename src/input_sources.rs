@@ -1,4 +1,5 @@
 use crate::traits::{GnomeInputHandler, InputHandler};
+use crate::utils;
 use gio::{prelude::SettingsExtManual, Settings};
 use log::info;
 use std::error::Error;
@@ -11,7 +12,8 @@ pub struct InputSourcesHandler {
 impl InputSourcesHandler {
     pub fn new() -> InputSourcesHandler {
         let settings = Settings::new("org.gnome.desktop.input-sources");
-        let sway_connection = SwayConnection::new().unwrap();
+        let sway_connection =
+            utils::new_sway_connection().expect("Sway IPC unavailable after startup retries");
         InputSourcesHandler {
             settings,
             sway_connection,

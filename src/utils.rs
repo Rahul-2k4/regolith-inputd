@@ -42,9 +42,13 @@ pub fn sync_input_settings(
 }
 
 pub fn get_new_inputevent_stream() -> Fallible<EventStream> {
-    let connection = SwayConnection::new()?;
+    let connection = new_sway_connection()?;
     let subs = [EventType::Input, EventType::Tick];
     connection.subscribe(subs)
+}
+
+pub fn new_sway_connection() -> Fallible<SwayConnection> {
+    retry_action(SwayConnection::new, 5, Duration::from_millis(500))
 }
 
 pub fn retry_action<F, T, E>(
@@ -157,5 +161,23 @@ mod tests {
 
         assert_eq!(result, Err("final failure"));
         assert_eq!(attempts, 3);
+    }
+    #[test]
+    fn startup_connection_retries_transient_refusal() {
+        let mut attempts = 0;
+        let result = retry_action(
+            || {
+                attempts += 1;
+                if attempts == 2 {
+                    Ok(())
+                } else {
+                    Err("connection refused")
+                }
+            },
+            5,
+            Duration::ZERO,
+        );
+        assert_eq!(result, Ok(()));
+        assert_eq!(attempts, 2);
     }
 }
