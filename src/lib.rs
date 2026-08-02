@@ -71,6 +71,9 @@ static ALLOW_SETTINGS_APPLY: GateState = GateState::new(true);
 type SharedRef<T> = Arc<Mutex<T>>;
 type HandlerList = SharedRef<HandlerSet>;
 
+const EVENT_STREAM_STARTUP_MAX_RETRIES: usize = 20;
+const EVENT_STREAM_STARTUP_RETRY_DELAY: Duration = Duration::from_millis(500);
+
 // Structs
 pub struct SettingsManager {
     handlers: HandlerList,
@@ -119,8 +122,8 @@ impl SettingsManager {
     pub fn start_monitoring(&mut self) -> Result<(), Box<dyn Error + '_>> {
         let event_stream = get_inputevent_stream_with_retry(
             utils::get_new_inputevent_stream,
-            5,
-            Duration::from_millis(500),
+            EVENT_STREAM_STARTUP_MAX_RETRIES,
+            EVENT_STREAM_STARTUP_RETRY_DELAY,
         )?;
         let mut handlers_lock = self.handlers.lock()?;
         for handle in handlers_lock.iter_mut() {
@@ -214,11 +217,11 @@ mod tests {
                 attempts += 1;
                 Err::<swayipc::EventStream, _>("event subscription failed")
             },
-            2,
+            EVENT_STREAM_STARTUP_MAX_RETRIES,
             Duration::ZERO,
         );
 
         assert!(result.is_err());
-        assert_eq!(attempts, 3);
+        assert_eq!(attempts, EVENT_STREAM_STARTUP_MAX_RETRIES + 1);
     }
 }
