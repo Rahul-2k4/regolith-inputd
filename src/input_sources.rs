@@ -9,6 +9,32 @@ pub struct InputSourcesHandler {
     settings: Settings,
     sway_connection: SwayConnection,
 }
+
+fn input_source_commands(
+    sources: Vec<(String, String)>,
+) -> Result<(String, String), Box<dyn Error>> {
+    let sources = if sources.is_empty() {
+        vec![(String::from("xkb"), String::from("us"))]
+    } else {
+        sources
+    };
+    let (layouts, variants) = sources
+        .into_iter()
+        .map(|(_, layout)| {
+            if layout.contains('+') {
+                let (layout, variant) = layout.split_once('+').unwrap();
+                (String::from(layout), String::from(variant))
+            } else {
+                (layout, String::from(""))
+            }
+        })
+        .reduce(|(layout, variant), (curr_layout, curr_variant)| {
+            (layout + "," + &curr_layout, variant + "," + &curr_variant)
+        })
+        .ok_or("Invalid keyboard layout or variant")?;
+    Ok((layouts, variants))
+}
+
 impl InputSourcesHandler {
     pub fn new() -> Result<InputSourcesHandler, Box<dyn Error>> {
         let settings = Settings::new("org.gnome.desktop.input-sources");
@@ -21,20 +47,7 @@ impl InputSourcesHandler {
     fn apply_input_sources(&mut self) -> Result<(), Box<dyn Error>> {
         let sources: Vec<(String, String)> = self.settings().get("sources");
         // Layout is of form code+variant
-        let (layouts, variants) = sources
-            .into_iter()
-            .map(|(_, layout)| {
-                if layout.contains('+') {
-                    let (layout, variant) = layout.split_once('+').unwrap();
-                    (String::from(layout), String::from(variant))
-                } else {
-                    (layout, String::from(""))
-                }
-            })
-            .reduce(|(layout, variant), (curr_layout, curr_variant)| {
-                (layout + "," + &curr_layout, variant + "," + &curr_variant)
-            })
-            .ok_or("Invalid keyboard layout or variant")?;
+        let (layouts, variants) = input_source_commands(sources)?;
         let layout_cmd = format!("input type:keyboard xkb_layout '{layouts}'");
         let vairants_cmd = format!("input type:keyboard xkb_variant '{variants}'");
         info!("{vairants_cmd}");
@@ -74,3 +87,16 @@ impl GnomeInputHandler for InputSourcesHandler {
     }
 }
 unsafe impl Send for InputSourcesHandler {}
+
+#[cfg(test)]
+mod tests {
+    use super::input_source_commands;
+
+    #[test]
+    fn empty_sources_use_the_default_us_layout() {
+        assert_eq!(
+            input_source_commands(Vec::new()).unwrap(),
+            ("us".into(), "".into())
+        );
+    }
+}
