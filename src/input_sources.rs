@@ -10,6 +10,10 @@ pub struct InputSourcesHandler {
     sway_connection: SwayConnection,
 }
 
+fn first_layout_name(layouts: &[String]) -> Option<&str> {
+    layouts.first().map(String::as_str)
+}
+
 fn input_source_commands(
     sources: Vec<(String, String)>,
 ) -> Result<(String, String), Box<dyn Error>> {
@@ -70,7 +74,9 @@ impl InputHandler for InputSourcesHandler {
         self.apply_input_sources()
     }
     fn sync_from_sway_input(&mut self, input: &swayipc::Input) -> Result<(), Box<dyn Error>> {
-        info!("xkb_layout: {}", input.xkb_layout_names[0]);
+        if let Some(layout) = first_layout_name(&input.xkb_layout_names) {
+            info!("xkb_layout: {layout}");
+        }
         Ok(())
     }
     fn sway_connection(&mut self) -> &mut swayipc::Connection {
@@ -90,7 +96,19 @@ unsafe impl Send for InputSourcesHandler {}
 
 #[cfg(test)]
 mod tests {
-    use super::input_source_commands;
+    use super::{first_layout_name, input_source_commands};
+
+    #[test]
+    fn missing_sway_layout_is_ignored_without_panicking() {
+        assert_eq!(first_layout_name(&[]), None);
+    }
+
+    #[test]
+    fn first_sway_layout_is_preserved_for_logging() {
+        let layouts = vec!["English (US)".to_string(), "Arabic".to_string()];
+
+        assert_eq!(first_layout_name(&layouts), Some("English (US)"));
+    }
 
     #[test]
     fn empty_sources_use_the_default_us_layout() {
