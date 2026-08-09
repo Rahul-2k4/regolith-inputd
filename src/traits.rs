@@ -72,10 +72,65 @@ pub trait InputHandler {
 
 #[cfg(test)]
 mod tests {
-    use super::with_gate_suppressed;
-    use crate::GateState;
-    use std::sync::Arc;
+    use super::{with_gate_suppressed, InputHandler};
+    use crate::{GateState, ALLOW_SETTINGS_APPLY, ALLOW_SWAYINPUT_APPLY};
+    use std::error::Error;
+    use std::sync::{Arc, Mutex};
     use std::thread;
+    use swayipc::{Connection as SwayConnection, Input};
+
+    static INPUT_HANDLER_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct TestHandler {
+        apply_changes_calls: usize,
+        sync_calls: usize,
+    }
+
+    impl TestHandler {
+        fn new() -> Self {
+            Self {
+                apply_changes_calls: 0,
+                sync_calls: 0,
+            }
+        }
+    }
+
+    impl InputHandler for TestHandler {
+        fn sway_connection(&mut self) -> &mut SwayConnection {
+            panic!("test handler should not use sway connection")
+        }
+
+        fn apply_changes(&mut self, _: &str) -> Result<(), Box<dyn Error>> {
+            self.apply_changes_calls += 1;
+            Ok(())
+        }
+
+        fn apply_all(&mut self) -> Result<(), Box<dyn Error>> {
+            Ok(())
+        }
+
+        fn sync_from_sway_input(&mut self, _: &Input) -> Result<(), Box<dyn Error>> {
+            self.sync_calls += 1;
+            Ok(())
+        }
+
+        fn monitor_settings_change(&mut self) {}
+    }
+
+    fn sample_input() -> Input {
+        serde_json::from_value(serde_json::json!({
+            "identifier": "1234:5678:Test_Touchpad",
+            "name": "Test Touchpad",
+            "vendor": 1234,
+            "product": 5678,
+            "type": "touchpad",
+            "xkb_active_layout_name": null,
+            "libinput": null,
+            "repeat_delay": null,
+            "repeat_rate": null
+        }))
+        .expect("input fixture should deserialize")
+    }
 
     #[test]
     fn restores_gate_after_failed_operation() {
@@ -118,6 +173,43 @@ mod tests {
         gate.end_suppression();
 
         assert!(gate.is_enabled());
+    }
+
+    #[test]
+    fn apply_changes_sync_reenables_swayinput_apply() {
+        let _guard = INPUT_HANDLER_TEST_LOCK.lock().unwrap();
+        ALLOW_SWAYINPUT_APPLY.set_requested(true);
+        ALLOW_SETTINGS_APPLY.set_requested(true);
+        let mut handler = TestHandler::new();
+
+        handler
+            .apply_changes_sync("speed")
+            .expect("apply_changes_sync should succeed");
+
+        assert_eq!(handler.apply_changes_calls, 1);
+        assert!(
+            ALLOW_SWAYINPUT_APPLY.is_enabled(),
+            "settings callback should restore sway-input syncing"
+        );
+    }
+
+    #[test]
+    fn sync_from_sway_input_sync_reenables_settings_apply() {
+        let _guard = INPUT_HANDLER_TEST_LOCK.lock().unwrap();
+        ALLOW_SWAYINPUT_APPLY.set_requested(true);
+        ALLOW_SETTINGS_APPLY.set_requested(true);
+        let mut handler = TestHandler::new();
+        let input = sample_input();
+
+        handler
+            .sync_from_sway_input_sync(&input)
+            .expect("sync_from_sway_input_sync should succeed");
+
+        assert_eq!(handler.sync_calls, 1);
+        assert!(
+            ALLOW_SETTINGS_APPLY.is_enabled(),
+            "sway-input sync should restore settings apply"
+        );
     }
 }
 
