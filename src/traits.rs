@@ -83,6 +83,7 @@ mod tests {
 
     struct TestHandler {
         apply_changes_calls: usize,
+        apply_all_calls: usize,
         sync_calls: usize,
     }
 
@@ -90,6 +91,7 @@ mod tests {
         fn new() -> Self {
             Self {
                 apply_changes_calls: 0,
+                apply_all_calls: 0,
                 sync_calls: 0,
             }
         }
@@ -106,6 +108,7 @@ mod tests {
         }
 
         fn apply_all(&mut self) -> Result<(), Box<dyn Error>> {
+            self.apply_all_calls += 1;
             Ok(())
         }
 
@@ -209,6 +212,42 @@ mod tests {
         assert!(
             ALLOW_SETTINGS_APPLY.is_enabled(),
             "sway-input sync should restore settings apply"
+        );
+    }
+
+    #[test]
+    fn apply_all_sync_reenables_swayinput_apply() {
+        let _guard = INPUT_HANDLER_TEST_LOCK.lock().unwrap();
+        ALLOW_SWAYINPUT_APPLY.set_requested(true);
+        ALLOW_SETTINGS_APPLY.set_requested(true);
+        let mut handler = TestHandler::new();
+
+        handler
+            .apply_all_sync()
+            .expect("apply_all_sync should succeed");
+
+        assert_eq!(handler.apply_all_calls, 1);
+        assert!(
+            ALLOW_SWAYINPUT_APPLY.is_enabled(),
+            "apply_all_sync should restore sway-input syncing"
+        );
+    }
+
+    #[test]
+    fn apply_all_sync_skips_apply_when_settings_apply_disabled() {
+        let _guard = INPUT_HANDLER_TEST_LOCK.lock().unwrap();
+        ALLOW_SWAYINPUT_APPLY.set_requested(true);
+        ALLOW_SETTINGS_APPLY.set_requested(false);
+        let mut handler = TestHandler::new();
+
+        handler
+            .apply_all_sync()
+            .expect("apply_all_sync should short-circuit cleanly");
+
+        assert_eq!(handler.apply_all_calls, 0);
+        assert!(
+            ALLOW_SWAYINPUT_APPLY.is_enabled(),
+            "short-circuit should leave sway-input syncing enabled"
         );
     }
 }
