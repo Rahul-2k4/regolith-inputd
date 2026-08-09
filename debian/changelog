@@ -1,3 +1,10 @@
+regolith-inputd (0.4.1-2) jammy; urgency=medium
+
+  * Install a manual page.
+  * Preserve DWARF data for the generated debug-symbol package.
+
+ -- Regolith Linux <regolith.linux@gmail.com>  Mon, 10 Aug 2026 00:00:00 +0000
+
 regolith-inputd (0.4.1-1) jammy; urgency=medium
 
   * Fix Debian package section and description metadata.

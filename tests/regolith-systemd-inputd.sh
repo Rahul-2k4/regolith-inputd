@@ -16,3 +16,6 @@ grep -Fxq "WantedBy=regolith-gnome.target regolith-cosmic.target" <<<"$install_s
 grep -Fxq "ExecStart=/usr/bin/regolith-inputd" data/regolith-init-inputd.service
 grep -Fxq "Restart=on-failure" data/regolith-init-inputd.service
 grep -Fxq "data/regolith-init-inputd.service /usr/lib/systemd/user/" debian/install
+grep -Fxq "debian/regolith-inputd.8 /usr/share/man/man8/" debian/install
+test -s debian/regolith-inputd.8
+grep -Fxq "CARGO_PROFILE_RELEASE_DEBUG=2" debian/rules

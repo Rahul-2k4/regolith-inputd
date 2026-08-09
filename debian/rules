@@ -1,4 +1,5 @@
 #!/usr/bin/make -f
+export CARGO_PROFILE_RELEASE_DEBUG = 2
 
 #export DH_VERBOSE = 1
 #export DEB_BUILD_MAINT_OPTIONS = hardening=+all

@@ -1,0 +1,19 @@
+.TH REGOLITH-INPUTD 8 "August 2026" "Regolith Linux" "System Manager Manual"
+.SH NAME
+regolith-inputd \- synchronize input settings between desktop backends and Sway
+.SH SYNOPSIS
+.B regolith-inputd
+.SH DESCRIPTION
+.B regolith-inputd
+is a D-Bus daemon that keeps supported desktop input settings aligned with Sway.
+It selects the GNOME or COSMIC input backend from the current desktop
+environment and applies input changes to the running Sway session.
+.SH FILES
+.TP
+.I /usr/lib/systemd/user/regolith-init-inputd.service
+User service used to start the daemon for supported Regolith Wayland sessions.
+.SH SEE ALSO
+.BR sway (1),
+.BR systemd (1)
+.SH AUTHOR
+Regolith Linux contributors
