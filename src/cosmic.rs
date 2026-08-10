@@ -268,19 +268,24 @@ where
     apply_commands(CosmicMouseHandler::commands_for_config(input_config), apply)
 }
 
-fn mouse_watch_callback_if_enabled<F>(
+fn mouse_watch_entry<C>(
     settings_apply_enabled: bool,
     config: &cosmic_config::Config,
     keys: &[String],
-    apply: F,
+    connect: C,
 ) -> Result<(), Box<dyn Error>>
 where
-    F: FnMut(String) -> Result<(), Box<dyn Error>>,
+    C: FnOnce() -> Result<SwayConnection, Box<dyn Error>>,
 {
     if !should_apply_mouse_watch(settings_apply_enabled, keys) {
         return Ok(());
     }
-    mouse_watch_callback(config, keys, apply)
+
+    let mut sway_connection = connect()?;
+    mouse_watch_callback(config, keys, |command| {
+        sway_connection.run_command(command)?;
+        Ok(())
+    })
 }
 
 impl InputHandler for CosmicMouseHandler {
@@ -334,19 +339,12 @@ impl InputHandler for CosmicMouseHandler {
         };
 
         match config.watch(|config, keys| {
-            let result = SwayConnection::new()
-                .map_err(|err| -> Box<dyn Error> { Box::new(err) })
-                .and_then(|mut sway_connection| {
-                    mouse_watch_callback_if_enabled(
-                        crate::ALLOW_SETTINGS_APPLY.is_enabled(),
-                        config,
-                        keys,
-                        |command| {
-                            sway_connection.run_command(command)?;
-                            Ok(())
-                        },
-                    )
-                });
+            let result = mouse_watch_entry(
+                crate::ALLOW_SETTINGS_APPLY.is_enabled(),
+                config,
+                keys,
+                || SwayConnection::new().map_err(|err| -> Box<dyn Error> { Box::new(err) }),
+            );
 
             if let Err(err) = result {
                 error!("Failed to apply COSMIC mouse settings change: {err}");
@@ -814,20 +812,41 @@ mod tests {
     #[test]
     fn mouse_watcher_callback_skips_disabled_settings_apply_gate() {
         let (config, root) = test_config("mouse-disabled-gate");
-        let mut commands = Vec::new();
+        let mut connections = 0;
 
-        super::mouse_watch_callback_if_enabled(
+        super::mouse_watch_entry(
             false,
             &config,
             &[super::COSMIC_MOUSE_CONFIG_KEY.into()],
-            |command| {
-                commands.push(command);
-                Ok(())
+            || {
+                connections += 1;
+                Err(std::io::Error::other("connection must not be opened").into())
             },
         )
         .unwrap();
 
-        assert!(commands.is_empty());
+        assert_eq!(connections, 0);
+        drop(config);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn mouse_watcher_enabled_gate_enters_connection_path() {
+        let (config, root) = test_config("mouse-enabled-gate");
+        let mut connections = 0;
+
+        let result = super::mouse_watch_entry(
+            true,
+            &config,
+            &[super::COSMIC_MOUSE_CONFIG_KEY.into()],
+            || {
+                connections += 1;
+                Err(std::io::Error::other("test connection").into())
+            },
+        );
+
+        assert!(result.is_err());
+        assert_eq!(connections, 1);
         drop(config);
         let _ = std::fs::remove_dir_all(root);
     }
