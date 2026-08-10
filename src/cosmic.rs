@@ -1,6 +1,6 @@
-use crate::traits::InputHandler;
+use crate::traits::{InputHandler, SwayTypeToPrimitive};
 use crate::utils;
-use cosmic_config::ConfigGet;
+use cosmic_config::{ConfigGet, ConfigSet};
 use log::{debug, error};
 use notify::RecommendedWatcher;
 use serde::{Deserialize, Serialize};
@@ -64,6 +64,10 @@ fn touchpad_watch_action(keys: &[String]) -> TouchpadWatchAction {
     }
 }
 
+fn should_apply_touchpad_watch(settings_apply_enabled: bool, keys: &[String]) -> bool {
+    settings_apply_enabled && touchpad_watch_action(keys) != TouchpadWatchAction::Ignore
+}
+
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct CosmicInputConfig {
     acceleration: Option<CosmicAccelConfig>,
@@ -119,6 +123,26 @@ struct CosmicTapConfig {
     enabled: bool,
     drag: bool,
     drag_lock: bool,
+}
+
+fn touchpad_config_with_sway_values(
+    mut input_config: CosmicInputConfig,
+    accel_speed: Option<f64>,
+    natural_scroll: Option<bool>,
+) -> CosmicInputConfig {
+    if let Some(speed) = accel_speed {
+        input_config
+            .acceleration
+            .get_or_insert_with(Default::default)
+            .speed = speed;
+    }
+    if let Some(natural_scroll) = natural_scroll {
+        input_config
+            .scroll_config
+            .get_or_insert_with(Default::default)
+            .natural_scroll = Some(natural_scroll);
+    }
+    input_config
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -472,10 +496,27 @@ impl InputHandler for CosmicTouchpadHandler {
     }
 
     fn sync_from_sway_input(&mut self, input: &Input) -> Result<(), Box<dyn Error>> {
-        debug!(
-            "COSMIC touchpad handler does not sync sway input type '{}' back to cosmic-config yet",
-            input.input_type
-        );
+        let Some(libinput) = input.libinput.as_ref() else {
+            return Ok(());
+        };
+        let accel_speed = libinput.accel_speed;
+        let natural_scroll = libinput
+            .natural_scroll
+            .as_ref()
+            .map(|value| value.to_primitive());
+        if accel_speed.is_none() && natural_scroll.is_none() {
+            return Ok(());
+        }
+
+        let config = cosmic_config::Config::new(COSMIC_COMP_CONFIG, COSMIC_COMP_CONFIG_VERSION)?;
+        config.set(
+            COSMIC_TOUCHPAD_CONFIG_KEY,
+            touchpad_config_with_sway_values(
+                Self::input_config_from(&config)?,
+                accel_speed,
+                natural_scroll,
+            ),
+        )?;
         Ok(())
     }
 
@@ -487,8 +528,7 @@ impl InputHandler for CosmicTouchpadHandler {
         };
 
         match config.watch(|config, keys| {
-            let action = touchpad_watch_action(keys);
-            if action == TouchpadWatchAction::Ignore {
+            if !should_apply_touchpad_watch(crate::ALLOW_SETTINGS_APPLY.is_enabled(), keys) {
                 return;
             }
 
@@ -969,6 +1009,14 @@ mod tests {
     }
 
     #[test]
+    fn touchpad_watcher_skips_reverse_sync_writes() {
+        let keys = ["input_touchpad".into()];
+
+        assert!(super::should_apply_touchpad_watch(true, &keys));
+        assert!(!super::should_apply_touchpad_watch(false, &keys));
+    }
+
+    #[test]
     fn touchpad_watcher_applies_override_changes_without_config_changes() {
         assert!(super::touchpad_watch_applies_override(&[
             "input_touchpad_override".into()
@@ -1022,6 +1070,95 @@ mod tests {
                 "input type:touchpad drag_lock enabled",
                 "input type:touchpad events disabled",
             ]
+        );
+    }
+
+    #[test]
+    fn touchpad_reverse_sync_updates_only_acceleration_speed_and_natural_scroll() {
+        let config = CosmicInputConfig {
+            acceleration: Some(super::CosmicAccelConfig {
+                profile: Some(super::CosmicAccelProfile::Adaptive),
+                speed: 0.4,
+            }),
+            click_method: Some(super::CosmicClickMethod::Clickfinger),
+            disable_while_typing: Some(true),
+            left_handed: Some(false),
+            middle_button_emulation: Some(true),
+            scroll_config: Some(super::CosmicScrollConfig {
+                method: Some(super::CosmicScrollMethod::TwoFinger),
+                natural_scroll: Some(false),
+                scroll_factor: Some(1.25),
+            }),
+            tap_config: Some(super::CosmicTapConfig {
+                enabled: true,
+                drag: true,
+                drag_lock: false,
+            }),
+        };
+
+        let synced = super::touchpad_config_with_sway_values(config, Some(-0.2), Some(true));
+
+        let acceleration = synced.acceleration.unwrap();
+        assert!(matches!(
+            acceleration.profile,
+            Some(super::CosmicAccelProfile::Adaptive)
+        ));
+        assert_eq!(acceleration.speed, -0.2);
+        assert!(matches!(
+            synced.click_method,
+            Some(super::CosmicClickMethod::Clickfinger)
+        ));
+        assert_eq!(synced.disable_while_typing, Some(true));
+        assert_eq!(synced.left_handed, Some(false));
+        assert_eq!(synced.middle_button_emulation, Some(true));
+        let scroll = synced.scroll_config.unwrap();
+        assert!(matches!(
+            scroll.method,
+            Some(super::CosmicScrollMethod::TwoFinger)
+        ));
+        assert_eq!(scroll.natural_scroll, Some(true));
+        assert_eq!(scroll.scroll_factor, Some(1.25));
+        let tap = synced.tap_config.unwrap();
+        assert!(tap.enabled);
+        assert!(tap.drag);
+        assert!(!tap.drag_lock);
+    }
+
+    #[test]
+    fn touchpad_reverse_sync_leaves_missing_sway_values_and_override_independent() {
+        let config = CosmicInputConfig {
+            acceleration: Some(super::CosmicAccelConfig {
+                profile: Some(super::CosmicAccelProfile::Flat),
+                speed: 0.3,
+            }),
+            scroll_config: Some(super::CosmicScrollConfig {
+                method: Some(super::CosmicScrollMethod::Edge),
+                natural_scroll: Some(false),
+                scroll_factor: Some(2.0),
+            }),
+            ..Default::default()
+        };
+
+        let synced = super::touchpad_config_with_sway_values(config, None, None);
+
+        let acceleration = synced.acceleration.unwrap();
+        assert!(matches!(
+            acceleration.profile,
+            Some(super::CosmicAccelProfile::Flat)
+        ));
+        assert_eq!(acceleration.speed, 0.3);
+        let scroll = synced.scroll_config.unwrap();
+        assert!(matches!(
+            scroll.method,
+            Some(super::CosmicScrollMethod::Edge)
+        ));
+        assert_eq!(scroll.natural_scroll, Some(false));
+        assert_eq!(scroll.scroll_factor, Some(2.0));
+        assert_eq!(
+            super::CosmicTouchpadHandler::commands_for_override(Some(
+                super::CosmicTouchpadOverride::ForceDisable
+            )),
+            vec!["input type:touchpad events disabled"]
         );
     }
 
