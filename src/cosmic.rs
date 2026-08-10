@@ -791,6 +791,56 @@ mod tests {
         (config, root)
     }
 
+    struct TestConfigHomeGuard {
+        previous_config_home: Option<std::ffi::OsString>,
+        root: std::path::PathBuf,
+        restored: bool,
+        cleaned: bool,
+    }
+
+    impl TestConfigHomeGuard {
+        fn new(root: std::path::PathBuf) -> Self {
+            let previous_config_home = std::env::var_os("XDG_CONFIG_HOME");
+            std::env::set_var("XDG_CONFIG_HOME", &root);
+            Self {
+                previous_config_home,
+                root,
+                restored: false,
+                cleaned: false,
+            }
+        }
+
+        fn restore_config_home(&mut self) {
+            if self.restored {
+                return;
+            }
+            match &self.previous_config_home {
+                Some(path) => std::env::set_var("XDG_CONFIG_HOME", path),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+            self.restored = true;
+        }
+
+        fn cleanup(&mut self) -> std::io::Result<()> {
+            self.restore_config_home();
+            if !self.cleaned && self.root.exists() {
+                std::fs::remove_dir_all(&self.root)?;
+                self.cleaned = true;
+            }
+            Ok(())
+        }
+    }
+
+    impl Drop for TestConfigHomeGuard {
+        fn drop(&mut self) {
+            self.restore_config_home();
+            // Panic cleanup is best effort; the normal test path checks cleanup().
+            if !self.cleaned {
+                let _ = std::fs::remove_dir_all(&self.root);
+            }
+        }
+    }
+
     #[test]
     fn touchpad_reverse_sync_persists_sway_values_without_overwriting_other_config() {
         use cosmic_config::{ConfigGet, ConfigSet};
@@ -801,8 +851,7 @@ mod tests {
 
         let _lock = CONFIG_HOME_LOCK.lock().unwrap();
         let (config, root) = test_config("touchpad-reverse-sync");
-        let previous_config_home = std::env::var_os("XDG_CONFIG_HOME");
-        std::env::set_var("XDG_CONFIG_HOME", &root);
+        let mut config_home = TestConfigHomeGuard::new(root);
 
         let original = CosmicInputConfig {
             acceleration: Some(super::CosmicAccelConfig {
@@ -867,6 +916,10 @@ mod tests {
         let acceleration = acceleration.unwrap();
         let scroll_config = scroll_config.unwrap();
         let tap_config = tap_config.unwrap();
+        assert!(matches!(
+            acceleration.profile,
+            Some(super::CosmicAccelProfile::Flat)
+        ));
         assert_eq!(acceleration.speed, -0.4);
         assert_eq!(scroll_config.natural_scroll, Some(true));
         assert!(matches!(
@@ -888,12 +941,11 @@ mod tests {
         ));
         assert_eq!(scroll_config.scroll_factor, Some(2.0));
         assert!(tap_config.enabled);
+        assert!(tap_config.drag);
+        assert!(!tap_config.drag_lock);
 
-        match previous_config_home {
-            Some(path) => std::env::set_var("XDG_CONFIG_HOME", path),
-            None => std::env::remove_var("XDG_CONFIG_HOME"),
-        }
-        let _ = std::fs::remove_dir_all(root);
+        drop(config);
+        config_home.cleanup().unwrap();
     }
 
     #[test]
