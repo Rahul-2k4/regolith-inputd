@@ -706,6 +706,7 @@ unsafe impl Send for CosmicInputHandler {}
 
 #[cfg(test)]
 mod tests {
+    use crate::traits::InputHandler;
     use super::{CosmicInputConfig, CosmicInputHandler, CosmicXkbConfig};
 
     #[test]
@@ -788,6 +789,111 @@ mod tests {
         )
         .unwrap();
         (config, root)
+    }
+
+    #[test]
+    fn touchpad_reverse_sync_persists_sway_values_without_overwriting_other_config() {
+        use cosmic_config::{ConfigGet, ConfigSet};
+        use std::os::unix::net::UnixStream;
+        use std::sync::Mutex;
+
+        static CONFIG_HOME_LOCK: Mutex<()> = Mutex::new(());
+
+        let _lock = CONFIG_HOME_LOCK.lock().unwrap();
+        let (config, root) = test_config("touchpad-reverse-sync");
+        let previous_config_home = std::env::var_os("XDG_CONFIG_HOME");
+        std::env::set_var("XDG_CONFIG_HOME", &root);
+
+        let original = CosmicInputConfig {
+            acceleration: Some(super::CosmicAccelConfig {
+                profile: Some(super::CosmicAccelProfile::Flat),
+                speed: 0.3,
+            }),
+            click_method: Some(super::CosmicClickMethod::Clickfinger),
+            disable_while_typing: Some(true),
+            left_handed: Some(false),
+            middle_button_emulation: Some(true),
+            scroll_config: Some(super::CosmicScrollConfig {
+                method: Some(super::CosmicScrollMethod::Edge),
+                natural_scroll: Some(false),
+                scroll_factor: Some(2.0),
+            }),
+            tap_config: Some(super::CosmicTapConfig {
+                enabled: true,
+                drag: true,
+                drag_lock: false,
+            }),
+        };
+        config
+            .set(super::COSMIC_TOUCHPAD_CONFIG_KEY, &original)
+            .unwrap();
+        config
+            .set(
+                super::COSMIC_TOUCHPAD_OVERRIDE_KEY,
+                super::CosmicTouchpadOverride::ForceDisable,
+            )
+            .unwrap();
+
+        let input = serde_json::from_value(serde_json::json!({
+            "identifier": "test-touchpad",
+            "name": "Test Touchpad",
+            "vendor": 1,
+            "product": 2,
+            "type": "touchpad",
+            "libinput": {
+                "accel_speed": -0.4,
+                "natural_scroll": "enabled"
+            }
+        }))
+        .unwrap();
+        let (connection, _peer) = UnixStream::pair().unwrap();
+        let mut handler = super::CosmicTouchpadHandler {
+            sway_connection: connection.into(),
+            _watcher: None,
+        };
+
+        handler.sync_from_sway_input(&input).unwrap();
+
+        let synced: CosmicInputConfig = config.get(super::COSMIC_TOUCHPAD_CONFIG_KEY).unwrap();
+        let CosmicInputConfig {
+            acceleration,
+            click_method,
+            disable_while_typing,
+            left_handed,
+            middle_button_emulation,
+            scroll_config,
+            tap_config,
+        } = synced;
+        let acceleration = acceleration.unwrap();
+        let scroll_config = scroll_config.unwrap();
+        let tap_config = tap_config.unwrap();
+        assert_eq!(acceleration.speed, -0.4);
+        assert_eq!(scroll_config.natural_scroll, Some(true));
+        assert!(matches!(
+            config
+                .get::<super::CosmicTouchpadOverride>(super::COSMIC_TOUCHPAD_OVERRIDE_KEY)
+                .unwrap(),
+            super::CosmicTouchpadOverride::ForceDisable
+        ));
+        assert!(matches!(
+            click_method,
+            Some(super::CosmicClickMethod::Clickfinger)
+        ));
+        assert_eq!(disable_while_typing, Some(true));
+        assert_eq!(left_handed, Some(false));
+        assert_eq!(middle_button_emulation, Some(true));
+        assert!(matches!(
+            scroll_config.method,
+            Some(super::CosmicScrollMethod::Edge)
+        ));
+        assert_eq!(scroll_config.scroll_factor, Some(2.0));
+        assert!(tap_config.enabled);
+
+        match previous_config_home {
+            Some(path) => std::env::set_var("XDG_CONFIG_HOME", path),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
