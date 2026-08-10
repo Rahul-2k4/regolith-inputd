@@ -43,6 +43,10 @@ impl GateState {
         self.requested.load(Ordering::Relaxed) && self.suppressions.load(Ordering::Relaxed) == 0
     }
 
+    pub(crate) fn requested_is_enabled(&self) -> bool {
+        self.requested.load(Ordering::Relaxed)
+    }
+
     pub(crate) fn set_requested(&self, enabled: bool) {
         self.requested.store(enabled, Ordering::Relaxed);
     }

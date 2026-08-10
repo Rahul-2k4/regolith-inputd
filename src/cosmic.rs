@@ -865,10 +865,10 @@ mod tests {
             }
         }
 
-        let _lock = CONFIG_HOME_LOCK.lock().unwrap();
+        let _lock = COSMIC_TEST_STATE_LOCK.lock().unwrap();
         let (config, root) = test_config("mouse-monitor-disabled-gate");
         let mut config_home = TestConfigHomeGuard::new(root);
-        let previous_gate = crate::ALLOW_SETTINGS_APPLY.is_enabled();
+        let previous_gate = crate::ALLOW_SETTINGS_APPLY.requested_is_enabled();
         let _gate = SettingsApplyGuard(previous_gate);
         crate::ALLOW_SETTINGS_APPLY.set_requested(false);
 
@@ -1048,13 +1048,13 @@ mod tests {
         }
     }
 
-    static CONFIG_HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    static COSMIC_TEST_STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn touchpad_reverse_sync_persists_sway_values_without_overwriting_other_config() {
         use cosmic_config::{ConfigGet, ConfigSet};
         use std::os::unix::net::UnixStream;
-        let _lock = CONFIG_HOME_LOCK.lock().unwrap();
+        let _lock = COSMIC_TEST_STATE_LOCK.lock().unwrap();
         let (config, root) = test_config("touchpad-reverse-sync");
         let mut config_home = TestConfigHomeGuard::new(root);
 
@@ -1157,7 +1157,7 @@ mod tests {
     fn mouse_reverse_sync_persists_sway_values_without_overwriting_other_config() {
         use cosmic_config::{ConfigGet, ConfigSet};
         use std::os::unix::net::UnixStream;
-        let _lock = CONFIG_HOME_LOCK.lock().unwrap();
+        let _lock = COSMIC_TEST_STATE_LOCK.lock().unwrap();
         let (config, root) = test_config("mouse-reverse-sync");
         let mut config_home = TestConfigHomeGuard::new(root);
 
