@@ -125,10 +125,11 @@ struct CosmicTapConfig {
     drag_lock: bool,
 }
 
-fn touchpad_config_with_sway_values(
+fn config_with_sway_values(
     mut input_config: CosmicInputConfig,
     accel_speed: Option<f64>,
     natural_scroll: Option<bool>,
+    left_handed: Option<bool>,
 ) -> CosmicInputConfig {
     if let Some(speed) = accel_speed {
         input_config
@@ -142,7 +143,14 @@ fn touchpad_config_with_sway_values(
             .get_or_insert_with(Default::default)
             .natural_scroll = Some(natural_scroll);
     }
+    if let Some(left_handed) = left_handed {
+        input_config.left_handed = Some(left_handed);
+    }
     input_config
+}
+
+fn should_apply_mouse_watch(settings_apply_enabled: bool, keys: &[String]) -> bool {
+    settings_apply_enabled && watch_action(keys, COSMIC_MOUSE_CONFIG_KEY) == WatchAction::Apply
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -282,17 +290,22 @@ impl InputHandler for CosmicMouseHandler {
             .natural_scroll
             .as_ref()
             .map(|value| value.to_primitive());
-        if accel_speed.is_none() && natural_scroll.is_none() {
+        let left_handed = libinput
+            .left_handed
+            .as_ref()
+            .map(|value| value.to_primitive());
+        if accel_speed.is_none() && natural_scroll.is_none() && left_handed.is_none() {
             return Ok(());
         }
 
         let config = cosmic_config::Config::new(COSMIC_COMP_CONFIG, COSMIC_COMP_CONFIG_VERSION)?;
         config.set(
             COSMIC_MOUSE_CONFIG_KEY,
-            touchpad_config_with_sway_values(
+            config_with_sway_values(
                 Self::input_config_from(&config)?,
                 accel_speed,
                 natural_scroll,
+                left_handed,
             ),
         )?;
         Ok(())
@@ -306,7 +319,7 @@ impl InputHandler for CosmicMouseHandler {
         };
 
         match config.watch(|config, keys| {
-            if watch_action(keys, COSMIC_MOUSE_CONFIG_KEY) == WatchAction::Ignore {
+            if !should_apply_mouse_watch(crate::ALLOW_SETTINGS_APPLY.is_enabled(), keys) {
                 return;
             }
 
@@ -528,10 +541,11 @@ impl InputHandler for CosmicTouchpadHandler {
         let config = cosmic_config::Config::new(COSMIC_COMP_CONFIG, COSMIC_COMP_CONFIG_VERSION)?;
         config.set(
             COSMIC_TOUCHPAD_CONFIG_KEY,
-            touchpad_config_with_sway_values(
+            config_with_sway_values(
                 Self::input_config_from(&config)?,
                 accel_speed,
                 natural_scroll,
+                None,
             ),
         )?;
         Ok(())
@@ -766,6 +780,22 @@ mod tests {
     }
 
     #[test]
+    fn mouse_watcher_requires_settings_apply_gate_and_default_key() {
+        assert!(!super::should_apply_mouse_watch(
+            false,
+            &[super::COSMIC_MOUSE_CONFIG_KEY.into()]
+        ));
+        assert!(!super::should_apply_mouse_watch(
+            true,
+            &[super::COSMIC_TOUCHPAD_CONFIG_KEY.into()]
+        ));
+        assert!(super::should_apply_mouse_watch(
+            true,
+            &[super::COSMIC_MOUSE_CONFIG_KEY.into()]
+        ));
+    }
+
+    #[test]
     fn mouse_commands_emit_default_input_settings() {
         let config = CosmicInputConfig {
             acceleration: Some(super::CosmicAccelConfig {
@@ -858,14 +888,12 @@ mod tests {
         }
     }
 
+    static CONFIG_HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn touchpad_reverse_sync_persists_sway_values_without_overwriting_other_config() {
         use cosmic_config::{ConfigGet, ConfigSet};
         use std::os::unix::net::UnixStream;
-        use std::sync::Mutex;
-
-        static CONFIG_HOME_LOCK: Mutex<()> = Mutex::new(());
-
         let _lock = CONFIG_HOME_LOCK.lock().unwrap();
         let (config, root) = test_config("touchpad-reverse-sync");
         let mut config_home = TestConfigHomeGuard::new(root);
@@ -969,10 +997,6 @@ mod tests {
     fn mouse_reverse_sync_persists_sway_values_without_overwriting_other_config() {
         use cosmic_config::{ConfigGet, ConfigSet};
         use std::os::unix::net::UnixStream;
-        use std::sync::Mutex;
-
-        static CONFIG_HOME_LOCK: Mutex<()> = Mutex::new(());
-
         let _lock = CONFIG_HOME_LOCK.lock().unwrap();
         let (config, root) = test_config("mouse-reverse-sync");
         let mut config_home = TestConfigHomeGuard::new(root);
@@ -1009,7 +1033,8 @@ mod tests {
             "type": "pointer",
             "libinput": {
                 "accel_speed": -0.4,
-                "natural_scroll": "enabled"
+                "natural_scroll": "enabled",
+                "left_handed": "enabled"
             }
         }))
         .unwrap();
@@ -1045,7 +1070,7 @@ mod tests {
             Some(super::CosmicClickMethod::Clickfinger)
         ));
         assert_eq!(disable_while_typing, Some(true));
-        assert_eq!(left_handed, Some(false));
+        assert_eq!(left_handed, Some(true));
         assert_eq!(middle_button_emulation, Some(true));
         assert!(matches!(
             scroll_config.method,
@@ -1366,7 +1391,7 @@ mod tests {
             }),
         };
 
-        let synced = super::touchpad_config_with_sway_values(config, Some(-0.2), Some(true));
+        let synced = super::config_with_sway_values(config, Some(-0.2), Some(true), None);
 
         let acceleration = synced.acceleration.unwrap();
         assert!(matches!(
@@ -1409,7 +1434,7 @@ mod tests {
             ..Default::default()
         };
 
-        let synced = super::touchpad_config_with_sway_values(config, None, None);
+        let synced = super::config_with_sway_values(config, None, None, None);
 
         let acceleration = synced.acceleration.unwrap();
         assert!(matches!(
