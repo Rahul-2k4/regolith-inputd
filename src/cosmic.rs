@@ -268,6 +268,21 @@ where
     apply_commands(CosmicMouseHandler::commands_for_config(input_config), apply)
 }
 
+fn mouse_watch_callback_if_enabled<F>(
+    settings_apply_enabled: bool,
+    config: &cosmic_config::Config,
+    keys: &[String],
+    apply: F,
+) -> Result<(), Box<dyn Error>>
+where
+    F: FnMut(String) -> Result<(), Box<dyn Error>>,
+{
+    if !should_apply_mouse_watch(settings_apply_enabled, keys) {
+        return Ok(());
+    }
+    mouse_watch_callback(config, keys, apply)
+}
+
 impl InputHandler for CosmicMouseHandler {
     fn sway_connection(&mut self) -> &mut SwayConnection {
         &mut self.sway_connection
@@ -319,17 +334,18 @@ impl InputHandler for CosmicMouseHandler {
         };
 
         match config.watch(|config, keys| {
-            if !should_apply_mouse_watch(crate::ALLOW_SETTINGS_APPLY.is_enabled(), keys) {
-                return;
-            }
-
             let result = SwayConnection::new()
                 .map_err(|err| -> Box<dyn Error> { Box::new(err) })
                 .and_then(|mut sway_connection| {
-                    mouse_watch_callback(config, keys, |command| {
-                        sway_connection.run_command(command)?;
-                        Ok(())
-                    })
+                    mouse_watch_callback_if_enabled(
+                        crate::ALLOW_SETTINGS_APPLY.is_enabled(),
+                        config,
+                        keys,
+                        |command| {
+                            sway_connection.run_command(command)?;
+                            Ok(())
+                        },
+                    )
                 });
 
             if let Err(err) = result {
@@ -793,6 +809,27 @@ mod tests {
             true,
             &[super::COSMIC_MOUSE_CONFIG_KEY.into()]
         ));
+    }
+
+    #[test]
+    fn mouse_watcher_callback_skips_disabled_settings_apply_gate() {
+        let (config, root) = test_config("mouse-disabled-gate");
+        let mut commands = Vec::new();
+
+        super::mouse_watch_callback_if_enabled(
+            false,
+            &config,
+            &[super::COSMIC_MOUSE_CONFIG_KEY.into()],
+            |command| {
+                commands.push(command);
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert!(commands.is_empty());
+        drop(config);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
