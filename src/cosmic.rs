@@ -922,6 +922,34 @@ mod tests {
             }
         }
 
+        crate::ALLOW_SETTINGS_APPLY.set_requested(true);
+        config
+            .set(
+                super::COSMIC_MOUSE_CONFIG_KEY,
+                CosmicInputConfig {
+                    acceleration: Some(super::CosmicAccelConfig {
+                        profile: None,
+                        speed: 0.5,
+                    }),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            match sway_listener.accept() {
+                Ok((_stream, _address)) => break,
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    if std::time::Instant::now() >= deadline {
+                        panic!("enabled settings gate did not reach SwayConnection");
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(err) => panic!("unexpected Sway listener error: {err}"),
+            }
+        }
+
         drop(handler);
         drop(config);
         config_home.cleanup().unwrap();
