@@ -706,8 +706,8 @@ unsafe impl Send for CosmicInputHandler {}
 
 #[cfg(test)]
 mod tests {
-    use crate::traits::InputHandler;
     use super::{CosmicInputConfig, CosmicInputHandler, CosmicXkbConfig};
+    use crate::traits::InputHandler;
 
     #[test]
     fn watcher_filters_match_supported_keys_only() {
