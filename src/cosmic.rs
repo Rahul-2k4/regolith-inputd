@@ -852,6 +852,82 @@ mod tests {
     }
 
     #[test]
+    fn mouse_monitor_settings_change_skips_live_apply_when_gate_is_disabled() {
+        use cosmic_config::ConfigSet;
+        use std::os::unix::net::{UnixListener, UnixStream};
+        use std::time::Duration;
+
+        struct SettingsApplyGuard(bool);
+
+        impl Drop for SettingsApplyGuard {
+            fn drop(&mut self) {
+                crate::ALLOW_SETTINGS_APPLY.set_requested(self.0);
+            }
+        }
+
+        let _lock = CONFIG_HOME_LOCK.lock().unwrap();
+        let (config, root) = test_config("mouse-monitor-disabled-gate");
+        let mut config_home = TestConfigHomeGuard::new(root);
+        let previous_gate = crate::ALLOW_SETTINGS_APPLY.is_enabled();
+        let _gate = SettingsApplyGuard(previous_gate);
+        crate::ALLOW_SETTINGS_APPLY.set_requested(false);
+
+        let sway_socket = config_home.root.join("sway.sock");
+        let sway_listener = UnixListener::bind(&sway_socket).unwrap();
+        sway_listener.set_nonblocking(true).unwrap();
+        let previous_sway_socket = std::env::var_os("SWAYSOCK");
+        std::env::set_var("SWAYSOCK", &sway_socket);
+        struct SwaySocketGuard(Option<std::ffi::OsString>);
+        impl Drop for SwaySocketGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(path) => std::env::set_var("SWAYSOCK", path),
+                    None => std::env::remove_var("SWAYSOCK"),
+                }
+            }
+        }
+        let _sway_socket_guard = SwaySocketGuard(previous_sway_socket);
+
+        let (connection, _peer) = UnixStream::pair().unwrap();
+        let mut handler = super::CosmicMouseHandler {
+            sway_connection: connection.into(),
+            _watcher: None,
+        };
+        handler.monitor_settings_change();
+
+        config
+            .set(
+                super::COSMIC_MOUSE_CONFIG_KEY,
+                CosmicInputConfig {
+                    acceleration: Some(super::CosmicAccelConfig {
+                        profile: None,
+                        speed: 0.25,
+                    }),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            match sway_listener.accept() {
+                Ok(_) => panic!("disabled settings gate attempted live Sway apply"),
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    if std::time::Instant::now() >= deadline {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(err) => panic!("unexpected Sway listener error: {err}"),
+            }
+        }
+
+        drop(handler);
+        drop(config);
+        config_home.cleanup().unwrap();
+    }
+
+    #[test]
     fn mouse_commands_emit_default_input_settings() {
         let config = CosmicInputConfig {
             acceleration: Some(super::CosmicAccelConfig {
