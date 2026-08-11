@@ -1,7 +1,6 @@
 [Unit]
 Description=Start Regolith Input Daemon
-PartOf=graphical-session.target
-After=graphical-session.target
+PartOf=regolith-gnome.target regolith-cosmic.target
 StartLimitIntervalSec=10
 StartLimitBurst=5
 
