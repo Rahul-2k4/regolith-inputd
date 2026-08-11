@@ -24,20 +24,28 @@ pub fn is_supported_input_type(input_type: &str) -> bool {
     matches!(input_type, "pointer" | "keyboard" | "touchpad")
 }
 
+fn handler_indices_for_input_type(input_type: &str) -> Vec<usize> {
+    match input_type {
+        "pointer" => vec![0],
+        "keyboard" => vec![1, 3],
+        "touchpad" => vec![2],
+        _ => Vec::new(),
+    }
+}
+
 pub fn sync_input_settings(
     handlers_sref: &mut HandlerList,
     input: &Input,
 ) -> Result<(), Box<dyn Error>> {
-    let input_type = input.input_type.clone();
-    let handler_index = match input_type.as_ref() {
-        "pointer" => 0,
-        "keyboard" => 1,
-        "touchpad" => 2,
-        _ => return Err("Incompatible input type".into()),
-    };
+    let handler_indices = handler_indices_for_input_type(&input.input_type);
+    if handler_indices.is_empty() {
+        return Err("Incompatible input type".into());
+    }
     info!("Recieved Sway InputEvent for {}", input.input_type);
     let mut handlers_lock = recover_lock(handlers_sref);
-    handlers_lock[handler_index].sync_from_sway_input_sync(input)?;
+    for handler_index in handler_indices {
+        handlers_lock[handler_index].sync_from_sway_input_sync(input)?;
+    }
     Ok(())
 }
 
@@ -87,7 +95,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{is_supported_input_type, recover_lock, retry_action, retry_fallible};
+    use super::{
+        handler_indices_for_input_type, is_supported_input_type, recover_lock, retry_action,
+        retry_fallible,
+    };
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
@@ -103,6 +114,13 @@ mod tests {
         .join();
 
         assert_eq!(*recover_lock(&mutex), 7);
+    }
+
+    #[test]
+    fn routes_keyboard_events_to_keyboard_and_input_source_handlers() {
+        assert_eq!(handler_indices_for_input_type("keyboard"), vec![1, 3]);
+        assert_eq!(handler_indices_for_input_type("pointer"), vec![0]);
+        assert_eq!(handler_indices_for_input_type("touchpad"), vec![2]);
     }
 
     #[test]
