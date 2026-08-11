@@ -182,6 +182,15 @@ impl Default for CosmicXkbConfig {
     }
 }
 
+fn keyboard_repeat_from_sway_input(name: &str, input: &Input) -> Option<(u32, u32)> {
+    if name != "keyboard" || input.input_type != "keyboard" {
+        return None;
+    }
+
+    // swayipc 3.0.1 does not expose repeat_delay or repeat_rate on Input.
+    None
+}
+
 pub struct CosmicMouseHandler {
     sway_connection: SwayConnection,
     _watcher: Option<RecommendedWatcher>,
@@ -704,11 +713,11 @@ impl InputHandler for CosmicInputHandler {
     }
 
     fn sync_from_sway_input(&mut self, input: &Input) -> Result<(), Box<dyn Error>> {
-        // TODO: Map Sway keyboard state back into COSMIC xkb_config when reverse sync is in scope.
         debug!(
-            "COSMIC input handler '{}' does not sync sway input type '{}' back to cosmic-config yet",
+            "COSMIC input handler '{}' cannot reverse-sync Sway input type '{}' repeat settings: swayipc Input has no repeat fields",
             self.name, input.input_type
         );
+        let _ = keyboard_repeat_from_sway_input(self.name, input);
         Ok(())
     }
 
@@ -753,6 +762,54 @@ unsafe impl Send for CosmicInputHandler {}
 mod tests {
     use super::{CosmicInputConfig, CosmicInputHandler, CosmicXkbConfig};
     use crate::traits::InputHandler;
+
+    #[test]
+    fn sway_keyboard_input_has_no_repeat_adapter_without_model_fields() {
+        let input = serde_json::from_value(serde_json::json!({
+            "identifier": "test-keyboard",
+            "name": "Test Keyboard",
+            "vendor": 1,
+            "product": 2,
+            "type": "keyboard",
+            "xkb_layout_names": ["English (US)"],
+            "xkb_active_layout_index": 0,
+            "xkb_active_layout_name": "English (US)"
+        }))
+        .unwrap();
+
+        assert_eq!(super::keyboard_repeat_from_sway_input("keyboard", &input), None);
+    }
+
+    #[test]
+    fn missing_sway_keyboard_repeat_data_is_a_no_op() {
+        let input = serde_json::from_value(serde_json::json!({
+            "identifier": "test-keyboard",
+            "name": "Test Keyboard",
+            "vendor": 1,
+            "product": 2,
+            "type": "keyboard"
+        }))
+        .unwrap();
+
+        assert_eq!(super::keyboard_repeat_from_sway_input("keyboard", &input), None);
+    }
+
+    #[test]
+    fn keyboard_repeat_reverse_sync_stays_separate_from_input_sources() {
+        let input = serde_json::from_value(serde_json::json!({
+            "identifier": "test-keyboard",
+            "name": "Test Keyboard",
+            "vendor": 1,
+            "product": 2,
+            "type": "keyboard",
+            "xkb_layout_names": ["English (US)"],
+            "xkb_active_layout_index": 0,
+            "xkb_active_layout_name": "English (US)"
+        }))
+        .unwrap();
+
+        assert_eq!(super::keyboard_repeat_from_sway_input("input-sources", &input), None);
+    }
 
     #[test]
     fn watcher_filters_match_supported_keys_only() {
