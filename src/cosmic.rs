@@ -777,7 +777,10 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(super::keyboard_repeat_from_sway_input("keyboard", &input), None);
+        assert_eq!(
+            super::keyboard_repeat_from_sway_input("keyboard", &input),
+            None
+        );
     }
 
     #[test]
@@ -791,7 +794,10 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(super::keyboard_repeat_from_sway_input("keyboard", &input), None);
+        assert_eq!(
+            super::keyboard_repeat_from_sway_input("keyboard", &input),
+            None
+        );
     }
 
     #[test]
@@ -808,7 +814,10 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(super::keyboard_repeat_from_sway_input("input-sources", &input), None);
+        assert_eq!(
+            super::keyboard_repeat_from_sway_input("input-sources", &input),
+            None
+        );
     }
 
     #[test]
