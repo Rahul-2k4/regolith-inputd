@@ -1,6 +1,6 @@
-# Build both desktop backends by default; packagers may override this, for example
-# with `make CARGO_FEATURES=gnome build`.
-CARGO_FEATURES ?= gnome,cosmic
+# Build one desktop backend at a time.
+# Packagers select COSMIC explicitly with CARGO_FEATURES=cosmic build.
+CARGO_FEATURES ?= gnome
 ifeq ($(strip $(RUST_TOOLCHAIN)),)
 RUST_TOOLCHAIN := 1.93
 endif
