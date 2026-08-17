@@ -559,6 +559,15 @@ pub struct CosmicInputHandler {
     _watcher: Option<RecommendedWatcher>,
 }
 
+fn active_layout_from_config(layouts: &str, active_index: Option<i32>) -> Option<&str> {
+    let index = usize::try_from(active_index?).ok()?;
+    layouts
+        .split(',')
+        .map(str::trim)
+        .filter(|layout| !layout.is_empty())
+        .nth(index)
+}
+
 impl CosmicInputHandler {
     pub fn new(name: &'static str) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
@@ -659,11 +668,21 @@ impl InputHandler for CosmicInputHandler {
     }
 
     fn sync_from_sway_input(&mut self, input: &Input) -> Result<(), Box<dyn Error>> {
-        // TODO: Map Sway keyboard state back into COSMIC xkb_config when reverse sync is in scope.
-        debug!(
-            "COSMIC input handler '{}' does not sync sway input type '{}' back to cosmic-config yet",
-            self.name, input.input_type
-        );
+        if self.name != "input-sources" {
+            return Ok(());
+        }
+        let config = cosmic_config::Config::new(COSMIC_COMP_CONFIG, COSMIC_COMP_CONFIG_VERSION)?;
+        let mut xkb_config = Self::xkb_config_from(&config)?;
+        let Some(layout) =
+            active_layout_from_config(&xkb_config.layout, input.xkb_active_layout_index)
+        else {
+            return Ok(());
+        };
+        if xkb_config.layout == layout {
+            return Ok(());
+        }
+        xkb_config.layout = layout.to_string();
+        config.set(COSMIC_XKB_CONFIG_KEY, xkb_config)?;
         Ok(())
     }
 
@@ -706,7 +725,16 @@ unsafe impl Send for CosmicInputHandler {}
 
 #[cfg(test)]
 mod tests {
-    use super::{CosmicInputConfig, CosmicInputHandler, CosmicXkbConfig};
+    use super::{
+        active_layout_from_config, CosmicInputConfig, CosmicInputHandler, CosmicXkbConfig,
+    };
+
+    #[test]
+    fn active_layout_reverse_sync_selects_the_configured_layout_code() {
+        let layout = String::from("us,ara");
+
+        assert_eq!(active_layout_from_config(&layout, Some(1)), Some("ara"));
+    }
 
     #[test]
     fn watcher_filters_match_supported_keys_only() {
