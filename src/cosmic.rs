@@ -147,8 +147,11 @@ fn touchpad_config_with_sway_values(
 
 #[derive(Debug, Deserialize, Serialize)]
 struct CosmicXkbConfig {
+    rules: String,
+    model: String,
     layout: String,
     variant: String,
+    options: Option<String>,
     #[serde(default = "default_repeat_delay")]
     repeat_delay: u32,
     #[serde(default = "default_repeat_rate")]
@@ -166,8 +169,11 @@ fn default_repeat_rate() -> u32 {
 impl Default for CosmicXkbConfig {
     fn default() -> Self {
         Self {
+            rules: String::new(),
+            model: String::new(),
             layout: String::new(),
             variant: String::new(),
+            options: None,
             repeat_delay: default_repeat_delay(),
             repeat_rate: default_repeat_rate(),
         }
@@ -597,6 +603,18 @@ impl CosmicInputHandler {
             ],
             "input-sources" if !xkb_config.layout.is_empty() => {
                 let mut commands = Vec::new();
+                if !xkb_config.rules.is_empty() {
+                    commands.push(format!(
+                        "input type:keyboard xkb_rules '{}'",
+                        xkb_config.rules
+                    ));
+                }
+                if !xkb_config.model.is_empty() {
+                    commands.push(format!(
+                        "input type:keyboard xkb_model '{}'",
+                        xkb_config.model
+                    ));
+                }
                 if !xkb_config.variant.is_empty() {
                     commands.push(format!(
                         "input type:keyboard xkb_variant '{}'",
@@ -607,6 +625,13 @@ impl CosmicInputHandler {
                     "input type:keyboard xkb_layout '{}'",
                     xkb_config.layout
                 ));
+                if let Some(options) = xkb_config
+                    .options
+                    .as_deref()
+                    .filter(|options| !options.is_empty())
+                {
+                    commands.push(format!("input type:keyboard xkb_options '{}'", options));
+                }
                 commands
             }
             "input-sources" => Vec::new(),
@@ -955,8 +980,11 @@ mod tests {
             .set(
                 super::COSMIC_XKB_CONFIG_KEY,
                 super::CosmicXkbConfig {
+                    rules: String::new(),
+                    model: String::new(),
                     layout: "us".into(),
                     variant: "altgr-intl".into(),
+                    options: None,
                     repeat_delay: 450,
                     repeat_rate: 35,
                 },
@@ -1234,8 +1262,11 @@ mod tests {
     #[test]
     fn keyboard_and_input_source_mapping_stays_split() {
         let config = CosmicXkbConfig {
+            rules: String::new(),
+            model: String::new(),
             layout: "us".into(),
             variant: String::new(),
+            options: None,
             repeat_delay: 500,
             repeat_rate: 30,
         };
@@ -1323,8 +1354,11 @@ mod tests {
     #[test]
     fn keyboard_commands_ignore_layout_variant_and_only_emit_repeat() {
         let config = CosmicXkbConfig {
+            rules: String::new(),
+            model: String::new(),
             layout: "us,ara".to_string(),
             variant: ",azerty".to_string(),
+            options: None,
             repeat_delay: 450,
             repeat_rate: 35,
         };
@@ -1364,6 +1398,46 @@ mod tests {
             ]
         );
         assert!(CosmicInputHandler::commands_for_config("input-sources", &config).is_empty());
+    }
+
+    #[test]
+    fn maps_cosmic_xkb_rules_model_and_options_to_sway_commands() {
+        let config = CosmicXkbConfig {
+            rules: "evdev".to_string(),
+            model: "pc105".to_string(),
+            layout: "us,ara".to_string(),
+            variant: ",azerty".to_string(),
+            options: Some("grp:alt_shift_toggle".to_string()),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            CosmicInputHandler::commands_for_config("input-sources", &config),
+            vec![
+                "input type:keyboard xkb_rules 'evdev'".to_string(),
+                "input type:keyboard xkb_model 'pc105'".to_string(),
+                "input type:keyboard xkb_variant ',azerty'".to_string(),
+                "input type:keyboard xkb_layout 'us,ara'".to_string(),
+                "input type:keyboard xkb_options 'grp:alt_shift_toggle'".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn skips_empty_optional_xkb_fields_without_changing_layout_mapping() {
+        let config = CosmicXkbConfig {
+            rules: String::new(),
+            model: String::new(),
+            layout: "us".to_string(),
+            variant: String::new(),
+            options: Some(String::new()),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            CosmicInputHandler::commands_for_config("input-sources", &config),
+            vec!["input type:keyboard xkb_layout 'us'".to_string()]
+        );
     }
 
     #[test]
