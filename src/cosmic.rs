@@ -583,6 +583,20 @@ impl CosmicInputHandler {
         Ok(config.get(COSMIC_XKB_CONFIG_KEY).unwrap_or_default())
     }
 
+    fn sync_xkb_config_from_layouts(
+        config: &cosmic_config::Config,
+        layout_names: &[String],
+    ) -> Result<(), Box<dyn Error>> {
+        if layout_names.is_empty() {
+            return Ok(());
+        }
+
+        let mut xkb_config = Self::xkb_config_from(config)?;
+        xkb_config.layout = layout_names.join(",");
+        config.set(COSMIC_XKB_CONFIG_KEY, xkb_config)?;
+        Ok(())
+    }
+
     fn commands_for_config(name: &str, xkb_config: &CosmicXkbConfig) -> Vec<String> {
         match name {
             "keyboard" => vec![
@@ -684,12 +698,8 @@ impl InputHandler for CosmicInputHandler {
     }
 
     fn sync_from_sway_input(&mut self, input: &Input) -> Result<(), Box<dyn Error>> {
-        // TODO: Map Sway keyboard state back into COSMIC xkb_config when reverse sync is in scope.
-        debug!(
-            "COSMIC input handler '{}' does not sync sway input type '{}' back to cosmic-config yet",
-            self.name, input.input_type
-        );
-        Ok(())
+        let config = cosmic_config::Config::new(COSMIC_COMP_CONFIG, COSMIC_COMP_CONFIG_VERSION)?;
+        Self::sync_xkb_config_from_layouts(&config, &input.xkb_layout_names)
     }
 
     fn monitor_settings_change(&mut self) {
@@ -813,6 +823,85 @@ mod tests {
         )
         .unwrap();
         (config, root)
+    }
+
+    #[test]
+    fn reverse_sync_ignores_empty_layout_list() {
+        use cosmic_config::{ConfigGet, ConfigSet};
+
+        let (config, root) = test_config("reverse-empty");
+        let original = super::CosmicXkbConfig {
+            rules: "evdev".into(),
+            model: "pc105".into(),
+            layout: "us".into(),
+            variant: "intl".into(),
+            options: Some("grp:alt_shift_toggle".into()),
+            repeat_delay: 450,
+            repeat_rate: 35,
+        };
+        config.set(super::COSMIC_XKB_CONFIG_KEY, original).unwrap();
+
+        super::CosmicInputHandler::sync_xkb_config_from_layouts(&config, &[]).unwrap();
+
+        let actual: super::CosmicXkbConfig = config.get(super::COSMIC_XKB_CONFIG_KEY).unwrap();
+        assert_eq!(actual.layout, "us");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reverse_sync_joins_all_layout_names_without_loss() {
+        use cosmic_config::{ConfigGet, ConfigSet};
+
+        let (config, root) = test_config("reverse-multiple");
+        config
+            .set(
+                super::COSMIC_XKB_CONFIG_KEY,
+                super::CosmicXkbConfig::default(),
+            )
+            .unwrap();
+
+        super::CosmicInputHandler::sync_xkb_config_from_layouts(
+            &config,
+            &["us".into(), "ara".into(), "de".into()],
+        )
+        .unwrap();
+
+        let actual: super::CosmicXkbConfig = config.get(super::COSMIC_XKB_CONFIG_KEY).unwrap();
+        assert_eq!(actual.layout, "us,ara,de");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reverse_sync_preserves_existing_xkb_fields() {
+        use cosmic_config::{ConfigGet, ConfigSet};
+
+        let (config, root) = test_config("reverse-preserve");
+        let original = super::CosmicXkbConfig {
+            rules: "evdev".into(),
+            model: "pc105".into(),
+            layout: "old".into(),
+            variant: ",azerty".into(),
+            options: Some("grp:alt_shift_toggle".into()),
+            repeat_delay: 475,
+            repeat_rate: 31,
+        };
+        config.set(super::COSMIC_XKB_CONFIG_KEY, original).unwrap();
+
+        super::CosmicInputHandler::sync_xkb_config_from_layouts(
+            &config,
+            &["us".into(), "ara".into()],
+        )
+        .unwrap();
+
+        let actual: super::CosmicXkbConfig = config.get(super::COSMIC_XKB_CONFIG_KEY).unwrap();
+        assert_eq!(actual.rules, "evdev");
+        assert_eq!(actual.model, "pc105");
+        assert_eq!(actual.layout, "us,ara");
+        assert_eq!(actual.variant, ",azerty");
+        assert_eq!(actual.options.as_deref(), Some("grp:alt_shift_toggle"));
+        assert_eq!(actual.repeat_delay, 475);
+        assert_eq!(actual.repeat_rate, 31);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
