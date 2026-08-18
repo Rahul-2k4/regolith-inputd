@@ -1,5 +1,6 @@
 # Build one desktop backend at a time.
 # Packagers select COSMIC explicitly with CARGO_FEATURES=cosmic build.
+# Voulage package opt-in: include vendor.tar before source archiving.
 CARGO_FEATURES ?= gnome
 ifeq ($(strip $(RUST_TOOLCHAIN)),)
 RUST_TOOLCHAIN := 1.93
